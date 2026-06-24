@@ -23,7 +23,7 @@ def main():
     with open(config_file) as f:
         config = json.load(f)
 
-    os.environ["SCRAPY_SETTINGS_MODULE"] = "spider_project.settings"
+    os.environ["SCRAPY_SETTINGS_MODULE"] = "settings"
 
     settings = get_project_settings()
     settings.set("CONCURRENT_REQUESTS", config.get("concurrent", 10))

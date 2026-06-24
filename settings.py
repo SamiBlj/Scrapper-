@@ -1,6 +1,6 @@
 BOT_NAME = "product_spider"
-SPIDER_MODULES = ["spider_project.spiders"]
-NEWSPIDER_MODULE = "spider_project.spiders"
+SPIDER_MODULES = ["product_spider"]
+NEWSPIDER_MODULE = "product_spider"
 
 ROBOTSTXT_OBEY = True
 DOWNLOAD_DELAY = 1.5

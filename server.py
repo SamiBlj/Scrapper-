@@ -36,6 +36,7 @@ class SpiderConfig(BaseModel):
     skip_domains: list[str] = ["wikipedia", "reddit", "youtube"]
     extract_fields: list[str] = ["price", "rating", "reviews", "brand", "availability"]
     serpapi_key: Optional[str] = None
+    search_engine: str = "duckduckgo"  # "google" | "duckduckgo" | "bing"
 
 
 class Job:
@@ -58,55 +59,91 @@ class Job:
         return round((datetime.now() - self.start_time).total_seconds(), 1)
 
 
-async def fetch_google_urls(config: SpiderConfig) -> list[str]:
-    """Get URLs from Google via SerpAPI, or fall back to a direct Google scrape."""
-    if config.serpapi_key:
-        try:
-            from serpapi import GoogleSearch
-            urls = []
-            for page in range(config.pages):
-                params = {
-                    "q": config.query,
-                    "api_key": config.serpapi_key,
-                    "start": page * 10,
-                    "num": 10,
-                }
-                search = GoogleSearch(params)
-                results = search.get_dict()
-                for r in results.get("organic_results", []):
-                    url = r.get("link")
-                    if url and not any(s in url for s in config.skip_domains):
-                        urls.append(url)
-            return urls
-        except Exception as e:
-            raise RuntimeError(f"SerpAPI error: {e}")
-    else:
-        # Fallback: scrape Google directly (basic, may get blocked)
-        import requests
-        from bs4 import BeautifulSoup
-        urls = []
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+async def _search_google(config: SpiderConfig) -> list[str]:
+    """Google via SerpAPI (API key required)."""
+    if not config.serpapi_key:
+        raise RuntimeError(
+            "Google search requires a SerpAPI key. Add one in the sidebar, "
+            "or switch to DuckDuckGo / Bing."
+        )
+    try:
+        from serpapi import GoogleSearch
+    except ImportError:
+        raise RuntimeError("google-search-results is not installed. Run: pip install google-search-results")
+    urls = []
+    for page in range(config.pages):
+        params = {
+            "q": config.query,
+            "api_key": config.serpapi_key,
+            "start": page * 10,
+            "num": 10,
         }
-        for page in range(config.pages):
-            try:
-                resp = requests.get(
-                    "https://www.google.com/search",
-                    params={"q": config.query, "start": page * 10, "num": 10},
+        search = GoogleSearch(params)
+        results = search.get_dict()
+        for r in results.get("organic_results", []):
+            url = r.get("link")
+            if url and not any(s in url for s in config.skip_domains):
+                urls.append(url)
+    return urls
+
+
+async def _search_duckduckgo(config: SpiderConfig) -> list[str]:
+    """DuckDuckGo via ddgs library (no API key needed)."""
+    try:
+        from ddgs import DDGS
+    except ImportError:
+        raise RuntimeError("ddgs is not installed. Run: pip install ddgs")
+    max_results = config.pages * 10
+    results = await asyncio.to_thread(
+        lambda: list(DDGS().text(config.query, max_results=max_results))
+    )
+    urls = []
+    for r in results:
+        url = r.get("href", "")
+        if url and not any(s in url for s in config.skip_domains):
+            urls.append(url)
+    return list(dict.fromkeys(urls))
+
+
+async def _search_bing(config: SpiderConfig) -> list[str]:
+    """Bing via HTML scraping (no API key needed)."""
+    import requests
+    from bs4 import BeautifulSoup
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    urls = []
+    for page in range(config.pages):
+        try:
+            resp = await asyncio.to_thread(
+                lambda p=page: requests.get(
+                    "https://www.bing.com/search",
+                    params={"q": config.query, "first": p * 10 + 1, "count": 10},
                     headers=headers,
-                    timeout=10,
+                    timeout=15,
                 )
-                soup = BeautifulSoup(resp.text, "lxml")
-                for a in soup.select("a[href]"):
-                    href = a["href"]
-                    if href.startswith("/url?q="):
-                        url = href[7:].split("&")[0]
-                        if url.startswith("http") and not any(s in url for s in config.skip_domains):
-                            urls.append(url)
-                await asyncio.sleep(1)
-            except Exception:
-                continue
-        return list(dict.fromkeys(urls))  # deduplicate
+            )
+            soup = BeautifulSoup(resp.text, "lxml")
+            for a in soup.select("li.b_algo h2 a, li.b_algo .b_title a"):
+                url = a.get("href", "")
+                if url.startswith("http") and not any(s in url for s in config.skip_domains):
+                    urls.append(url)
+            await asyncio.sleep(1)
+        except Exception:
+            continue
+    return list(dict.fromkeys(urls))
+
+
+async def fetch_urls(config: SpiderConfig) -> list[str]:
+    """Dispatch to the selected search engine."""
+    engine = (config.search_engine or "duckduckgo").lower()
+    if engine == "google":
+        return await _search_google(config)
+    elif engine == "bing":
+        return await _search_bing(config)
+    else:
+        return await _search_duckduckgo(config)
 
 
 async def run_spider_job(job: Job):
@@ -115,11 +152,12 @@ async def run_spider_job(job: Job):
 
     try:
         # Step 1: fetch URLs
-        job.push({"type": "status", "msg": f'Fetching Google results for "{job.config.query}"…'})
-        urls = await fetch_google_urls(job.config)
+        engine_label = (job.config.search_engine or "duckduckgo").capitalize()
+        job.push({"type": "status", "msg": f'Searching {engine_label} for "{job.config.query}"…'})
+        urls = await fetch_urls(job.config)
 
         if not urls:
-            job.push({"type": "error", "msg": "No URLs found. Check your query or SerpAPI key."})
+            job.push({"type": "error", "msg": "No URLs found. Try a different query, or add a SerpAPI key for more reliable results."})
             job.status = "error"
             job.done = True
             return
@@ -127,7 +165,6 @@ async def run_spider_job(job: Job):
         job.push({"type": "status", "msg": f"Found {len(urls)} candidate URLs. Starting crawl…"})
 
         # Step 2: run Scrapy in a subprocess to avoid event loop conflicts
-        import subprocess
         import tempfile
 
         config_payload = {
@@ -223,17 +260,13 @@ async def stream_job(job_id: str):
     async def event_generator():
         sent = 0
         while True:
-            # Send any buffered events we haven't sent yet
             while sent < len(job.events):
                 event = job.events[sent]
                 yield f"data: {json.dumps(event)}\n\n"
                 sent += 1
-
             if job.done:
                 break
-
             await asyncio.sleep(0.1)
-
         yield "data: {\"type\": \"stream_end\"}\n\n"
 
     return StreamingResponse(
@@ -294,7 +327,7 @@ async def health():
 @app.get("/", response_class=HTMLResponse)
 async def root():
     html_path = os.path.join(os.path.dirname(__file__), "index.html")
-    with open(html_path) as f:
+    with open(html_path, encoding="utf-8") as f:
         return f.read()
 
 

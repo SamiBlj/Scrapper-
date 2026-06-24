@@ -414,7 +414,15 @@
       <div class="section-label">Search</div>
       <div class="field">
         <label>Query</label>
-        <input type="text" id="query" placeholder="e.g. buy wireless headphones" value="buy wireless headphones">
+        <input type="text" id="query" placeholder="e.g.  wireless headphones :[] " value=" wireless headphones">
+      </div>
+      <div class="field">
+        <label>Search Engine</label>
+        <select id="Search_Engine">
+          <option value="10">Google</option>
+          <option value="11">DuckDuckGo</option>
+          <option value="12">Bing</option>
+        </select>
       </div>
       <div class="row2">
         <div class="field">
@@ -705,6 +713,7 @@ async function runSpider() {
   if (document.getElementById('f_avail').checked) fields.push('availability');
   if (document.getElementById('f_desc').checked) fields.push('description');
 
+  const engineMap = { '10': 'google', '11': 'duckduckgo', '12': 'bing' };
   const config = {
     query,
     pages: parseInt(document.getElementById('pages').value),
@@ -713,6 +722,7 @@ async function runSpider() {
     skip_domains: getTags('skip-wrap'),
     extract_fields: fields,
     serpapi_key: document.getElementById('apikey').value.trim() || null,
+    search_engine: engineMap[document.getElementById('Search_Engine').value] || 'duckduckgo',
   };
 
   try {
