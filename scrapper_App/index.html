@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Product Spider</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.x/dist/tabler-icons.min.css">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #f9f9f8;
+    --surface: #ffffff;
+    --surface2: #f4f4f2;
+    --border: rgba(0,0,0,0.10);
+    --border2: rgba(0,0,0,0.18);
+    --text: #1a1a18;
+    --text2: #6b6b67;
+    --text3: #a0a09c;
+    --accent: #1a1a18;
+    --green: #1D9E75;
+    --green-bg: #EAF3DE;
+    --green-text: #3B6D11;
+    --amber-bg: #FAEEDA;
+    --amber-text: #854F0B;
+    --red-bg: #FCEBEB;
+    --red-text: #A32D2D;
+    --blue-bg: #E6F1FB;
+    --blue-text: #185FA5;
+    --radius: 8px;
+    --radius-lg: 12px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1a1a18;
+      --surface: #242422;
+      --surface2: #2e2e2c;
+      --border: rgba(255,255,255,0.10);
+      --border2: rgba(255,255,255,0.18);
+      --text: #f0f0ee;
+      --text2: #a0a09c;
+      --text3: #6b6b67;
+      --accent: #f0f0ee;
+      --green-bg: #0a2e1e;
+      --green-text: #5DCAA5;
+      --amber-bg: #2e1e08;
+      --amber-text: #FAC775;
+      --red-bg: #2e0a0a;
+      --red-text: #F09595;
+      --blue-bg: #0a1e2e;
+      --blue-text: #85B7EB;
+    }
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    font-size: 15px;
+    line-height: 1.5;
+  }
+
+  /* Layout */
+  .app { display: flex; min-height: 100vh; }
+
+  .sidebar {
+    width: 320px;
+    flex-shrink: 0;
+    background: var(--surface);
+    border-right: 0.5px solid var(--border);
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    overflow-y: auto;
+    height: 100vh;
+    position: sticky;
+    top: 0;
+  }
+
+  .main {
+    flex: 1;
+    padding: 1.5rem;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    min-width: 0;
+  }
+
+  /* Header */
+  .logo { display: flex; align-items: center; gap: 8px; }
+  .logo h1 { font-size: 18px; font-weight: 600; }
+  .logo .icon { font-size: 22px; }
+  .logo p { font-size: 12px; color: var(--text2); margin-top: 2px; }
+
+  /* Section labels */
+  .section-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text3);
+    margin-bottom: 6px;
+  }
+
+  /* Form elements */
+  label { font-size: 13px; color: var(--text2); display: block; margin-bottom: 4px; }
+  input[type=text], input[type=password], input[type=number], select, textarea {
+    width: 100%;
+    padding: 7px 10px;
+    font-size: 13px;
+    border: 0.5px solid var(--border2);
+    border-radius: var(--radius);
+    background: var(--surface2);
+    color: var(--text);
+    font-family: inherit;
+    transition: border-color 0.15s;
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  textarea { resize: vertical; min-height: 64px; font-size: 12px; }
+
+  .field { margin-bottom: 10px; }
+
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+  /* Tag input */
+  .tag-wrap {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    padding: 5px 7px;
+    border: 0.5px solid var(--border2);
+    border-radius: var(--radius);
+    background: var(--surface2);
+    min-height: 36px;
+    cursor: text;
+  }
+  .tag-wrap:focus-within { border-color: var(--accent); }
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    background: var(--blue-bg);
+    color: var(--blue-text);
+    border-radius: 99px;
+    padding: 1px 8px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .tag button {
+    background: none; border: none; color: var(--blue-text);
+    cursor: pointer; padding: 0; font-size: 14px; line-height: 1;
+  }
+  .tag-input-inner {
+    border: none; background: none; outline: none;
+    font-size: 12px; color: var(--text);
+    min-width: 70px; flex: 1; font-family: inherit;
+  }
+
+  /* Checkboxes */
+  .check-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 5px;
+  }
+  .check-label {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 13px; color: var(--text2); cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 6px;
+    transition: background 0.1s;
+  }
+  .check-label:hover { background: var(--surface2); }
+  .check-label input { accent-color: var(--green); }
+
+  /* Run button */
+  .run-btn {
+    width: 100%;
+    padding: 10px;
+    background: var(--accent);
+    color: var(--surface);
+    border: none;
+    border-radius: var(--radius);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    font-family: inherit;
+    transition: opacity 0.15s;
+    margin-top: 4px;
+  }
+  .run-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .run-btn:not(:disabled):hover { opacity: 0.85; }
+
+  /* Metrics */
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+  }
+  .metric {
+    background: var(--surface);
+    border: 0.5px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+  }
+  .metric .val { font-size: 22px; font-weight: 600; color: var(--text); }
+  .metric .lbl { font-size: 12px; color: var(--text2); margin-top: 2px; }
+
+  /* Status bar */
+  .status-bar {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 9px 14px;
+    background: var(--surface);
+    border: 0.5px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 13px;
+    color: var(--text2);
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border2); flex-shrink: 0; }
+  .dot.running { background: var(--green); animation: pulse 1.2s infinite; }
+  .dot.done { background: var(--green); }
+  .dot.error { background: #E24B4A; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  /* Progress */
+  .progress-wrap { display: none; }
+  .progress-header {
+    display: flex; justify-content: space-between;
+    font-size: 12px; color: var(--text2); margin-bottom: 5px;
+  }
+  .progress-track {
+    height: 3px;
+    background: var(--surface2);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--green);
+    border-radius: 2px;
+    transition: width 0.4s ease;
+    width: 0%;
+  }
+
+  /* Log */
+  .log-box {
+    background: var(--surface);
+    border: 0.5px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    max-height: 180px;
+    overflow-y: auto;
+    font-family: "SF Mono", "Fira Code", monospace;
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--text2);
+  }
+  .log-box .ok { color: var(--green); }
+  .log-box .skip { color: var(--text3); }
+  .log-box .err { color: #E24B4A; }
+
+  /* Card */
+  .card {
+    background: var(--surface);
+    border: 0.5px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 1rem 1.25rem;
+  }
+  .card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .card-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text2);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .card-actions { display: flex; gap: 6px; }
+
+  /* Export buttons */
+  .btn-sm {
+    font-size: 12px;
+    padding: 5px 11px;
+    border: 0.5px solid var(--border2);
+    border-radius: var(--radius);
+    background: none;
+    color: var(--text2);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-family: inherit;
+    transition: background 0.1s;
+  }
+  .btn-sm:hover { background: var(--surface2); }
+
+  /* Table */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th {
+    text-align: left;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text3);
+    padding: 8px 10px;
+    border-bottom: 0.5px solid var(--border);
+    white-space: nowrap;
+  }
+  td {
+    padding: 9px 10px;
+    border-bottom: 0.5px solid var(--border);
+    color: var(--text);
+    vertical-align: top;
+    max-width: 260px;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--surface2); }
+
+  /* Badges */
+  .badge {
+    display: inline-flex; align-items: center;
+    font-size: 11px; font-weight: 600;
+    padding: 2px 8px; border-radius: 99px;
+  }
+  .badge-green { background: var(--green-bg); color: var(--green-text); }
+  .badge-amber { background: var(--amber-bg); color: var(--amber-text); }
+  .badge-red { background: var(--red-bg); color: var(--red-text); }
+
+  /* Empty state */
+  .empty-state {
+    text-align: center;
+    padding: 2.5rem 1rem;
+    color: var(--text3);
+  }
+  .empty-state i { font-size: 28px; display: block; margin-bottom: 8px; }
+  .empty-state p { font-size: 13px; }
+
+  /* Divider */
+  hr { border: none; border-top: 0.5px solid var(--border); margin: 4px 0; }
+
+  /* Connection banner */
+  .banner {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px;
+    border-radius: var(--radius);
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .banner.ok { background: var(--green-bg); color: var(--green-text); }
+  .banner.err { background: var(--red-bg); color: var(--red-text); }
+  .banner.warn { background: var(--amber-bg); color: var(--amber-text); }
+
+  /* Link */
+  a { color: var(--blue-text); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* Tooltip */
+  [title] { cursor: help; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+
+  @media (max-width: 768px) {
+    .app { flex-direction: column; }
+    .sidebar { width: 100%; height: auto; position: static; }
+    .metrics { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ─── SIDEBAR ─── -->
+  <aside class="sidebar">
+
+    <div class="logo">
+      <div>
+        <h1><i class="ti ti-spider icon"></i> Product Spider</h1>
+        <p>Find & extract product data from the web</p>
+      </div>
+    </div>
+
+    <div id="connectionBanner" class="banner warn">
+      <i class="ti ti-wifi-off"></i> Connecting to backend…
+    </div>
+
+    <hr>
+
+    <!-- Search -->
+    <div>
+      <div class="section-label">Search</div>
+      <div class="field">
+        <label>Query</label>
+        <input type="text" id="query" placeholder="e.g. buy wireless headphones" value="buy wireless headphones">
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label>Google pages</label>
+          <select id="pages">
+            <option value="1">1 (10 results)</option>
+            <option value="2">2 (20 results)</option>
+            <option value="3" selected>3 (30 results)</option>
+            <option value="5">5 (50 results)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Threads</label>
+          <select id="threads">
+            <option value="5">5 — gentle</option>
+            <option value="10" selected>10 — balanced</option>
+            <option value="20">20 — fast</option>
+            <option value="50">50 — aggressive</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <hr>
+
+    <!-- Fields -->
+    <div>
+      <div class="section-label">Fields to extract</div>
+      <div class="check-grid">
+        <label class="check-label"><input type="checkbox" id="f_price" checked> Price</label>
+        <label class="check-label"><input type="checkbox" id="f_rating" checked> Rating</label>
+        <label class="check-label"><input type="checkbox" id="f_reviews" checked> Reviews</label>
+        <label class="check-label"><input type="checkbox" id="f_brand" checked> Brand</label>
+        <label class="check-label"><input type="checkbox" id="f_avail" checked> Availability</label>
+        <label class="check-label"><input type="checkbox" id="f_desc"> Description</label>
+      </div>
+    </div>
+
+    <hr>
+
+    <!-- Filters -->
+    <div>
+      <div class="section-label">Buy signals</div>
+      <div class="tag-wrap" id="buy-wrap" onclick="document.getElementById('buy-inp').focus()">
+        <span class="tag">add to cart<button onclick="removeTag(this)">×</button></span>
+        <span class="tag">buy now<button onclick="removeTag(this)">×</button></span>
+        <span class="tag">in stock<button onclick="removeTag(this)">×</button></span>
+        <span class="tag">checkout<button onclick="removeTag(this)">×</button></span>
+        <input class="tag-input-inner" id="buy-inp" placeholder="add signal…" onkeydown="addTag(event,'buy-wrap','buy-inp')">
+      </div>
+    </div>
+
+    <div>
+      <div class="section-label" style="margin-top:8px;">Skip domains</div>
+      <div class="tag-wrap" id="skip-wrap" onclick="document.getElementById('skip-inp').focus()">
+        <span class="tag">wikipedia<button onclick="removeTag(this)">×</button></span>
+        <span class="tag">reddit<button onclick="removeTag(this)">×</button></span>
+        <span class="tag">youtube<button onclick="removeTag(this)">×</button></span>
+        <input class="tag-input-inner" id="skip-inp" placeholder="add domain…" onkeydown="addTag(event,'skip-wrap','skip-inp')">
+      </div>
+    </div>
+
+    <hr>
+
+    <!-- API Key -->
+    <div>
+      <div class="section-label">SerpAPI key <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></div>
+      <input type="password" id="apikey" placeholder="sk-… leave blank to scrape Google directly">
+    </div>
+
+    <button class="run-btn" id="runBtn" onclick="runSpider()">
+      <i class="ti ti-player-play"></i> Run spider
+    </button>
+
+  </aside>
+
+  <!-- ─── MAIN ─── -->
+  <main class="main">
+
+    <!-- Metrics -->
+    <div class="metrics">
+      <div class="metric">
+        <div class="val" id="m-scanned">—</div>
+        <div class="lbl">URLs scanned</div>
+      </div>
+      <div class="metric">
+        <div class="val" id="m-found">—</div>
+        <div class="lbl">Product pages</div>
+      </div>
+      <div class="metric">
+        <div class="val" id="m-skipped">—</div>
+        <div class="lbl">Skipped</div>
+      </div>
+      <div class="metric">
+        <div class="val" id="m-time">—</div>
+        <div class="lbl">Time elapsed</div>
+      </div>
+    </div>
+
+    <!-- Status -->
+    <div class="status-bar">
+      <div class="dot" id="statusDot"></div>
+      <span id="statusText">Ready — configure your search and click Run spider.</span>
+    </div>
+
+    <!-- Progress -->
+    <div class="progress-wrap" id="progressWrap">
+      <div class="progress-header">
+        <span id="progressLabel">Scanning…</span>
+        <span id="progressPct">0%</span>
+      </div>
+      <div class="progress-track">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
+    </div>
+
+    <!-- Log -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title"><i class="ti ti-terminal-2"></i> Live log</div>
+        <button class="btn-sm" onclick="document.getElementById('logBox').innerHTML=''">
+          <i class="ti ti-trash"></i> Clear
+        </button>
+      </div>
+      <div class="log-box" id="logBox">Waiting for spider to start…</div>
+    </div>
+
+    <!-- Results -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title"><i class="ti ti-table"></i> Results <span id="resultCount" style="font-weight:400;color:var(--text3);margin-left:4px;"></span></div>
+        <div class="card-actions">
+          <button class="btn-sm" onclick="exportData('csv')"><i class="ti ti-download"></i> CSV</button>
+          <button class="btn-sm" onclick="exportData('json')"><i class="ti ti-file"></i> JSON</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Product name</th>
+              <th>Price</th>
+              <th>Rating</th>
+              <th>Reviews</th>
+              <th>Brand</th>
+              <th>Availability</th>
+              <th>Source</th>
+            </tr>
+          </thead>
+          <tbody id="resultsBody">
+            <tr>
+              <td colspan="7">
+                <div class="empty-state">
+                  <i class="ti ti-mood-empty"></i>
+                  <p>No results yet — run the spider to populate this table.</p>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+const API = window.location.origin;
+let currentJobId = null;
+let results = [];
+let scanned = 0, found = 0, skipped = 0;
+let startTime = null;
+let timerInterval = null;
+let eventSource = null;
+
+// ── Connection check ──
+async function checkConnection() {
+  try {
+    const r = await fetch(API + '/health', { signal: AbortSignal.timeout(3000) });
+    if (r.ok) {
+      document.getElementById('connectionBanner').className = 'banner ok';
+      document.getElementById('connectionBanner').innerHTML = '<i class="ti ti-wifi"></i> Backend connected — ready';
+    } else throw new Error();
+  } catch {
+    document.getElementById('connectionBanner').className = 'banner err';
+    document.getElementById('connectionBanner').innerHTML = '<i class="ti ti-wifi-off"></i> Cannot reach backend — is the server running?';
+  }
+}
+checkConnection();
+
+// ── Tag helpers ──
+function addTag(e, wrapId, inputId) {
+  if (e.key !== 'Enter') return;
+  const inp = document.getElementById(inputId);
+  const val = inp.value.trim();
+  if (!val) return;
+  const wrap = document.getElementById(wrapId);
+  const tag = document.createElement('span');
+  tag.className = 'tag';
+  tag.innerHTML = val + '<button onclick="removeTag(this)">×</button>';
+  wrap.insertBefore(tag, inp);
+  inp.value = '';
+}
+function removeTag(btn) { btn.parentElement.remove(); }
+function getTags(wrapId) {
+  return [...document.getElementById(wrapId).querySelectorAll('.tag')]
+    .map(t => t.textContent.replace('×','').trim()).filter(Boolean);
+}
+
+// ── UI helpers ──
+function setStatus(state, text) {
+  document.getElementById('statusDot').className = 'dot ' + state;
+  document.getElementById('statusText').textContent = text;
+}
+function updateMetrics() {
+  document.getElementById('m-scanned').textContent = scanned;
+  document.getElementById('m-found').textContent = found;
+  document.getElementById('m-skipped').textContent = skipped;
+}
+function updateTimer() {
+  const s = ((Date.now() - startTime) / 1000).toFixed(1);
+  document.getElementById('m-time').textContent = s + 's';
+}
+function appendLog(cls, msg) {
+  const box = document.getElementById('logBox');
+  if (box.children.length === 1 && box.textContent.startsWith('Waiting')) box.innerHTML = '';
+  const line = document.createElement('div');
+  line.className = cls;
+  line.textContent = msg;
+  box.appendChild(line);
+  box.scrollTop = box.scrollHeight;
+}
+function renderResults() {
+  const body = document.getElementById('resultsBody');
+  document.getElementById('resultCount').textContent = results.length ? `(${results.length})` : '';
+  if (!results.length) {
+    body.innerHTML = '<tr><td colspan="7"><div class="empty-state"><i class="ti ti-mood-empty"></i><p>No product pages found yet.</p></div></td></tr>';
+    return;
+  }
+  body.innerHTML = results.map(r => `
+    <tr>
+      <td style="font-weight:500">${r.name || '—'}</td>
+      <td style="font-weight:600;white-space:nowrap">${r.price || '—'}</td>
+      <td>${r.rating && r.rating !== 'N/A' ? '★ ' + r.rating : '<span style="color:var(--text3)">—</span>'}</td>
+      <td>${r.reviews && r.reviews !== 'N/A' ? r.reviews : '<span style="color:var(--text3)">—</span>'}</td>
+      <td>${r.brand && r.brand !== 'N/A' ? r.brand : '<span style="color:var(--text3)">—</span>'}</td>
+      <td>${availBadge(r.availability)}</td>
+      <td><a href="${r.source_url || '#'}" target="_blank" rel="noopener">${r.site || r.source_url || '—'} <i class="ti ti-external-link" style="font-size:11px"></i></a></td>
+    </tr>
+  `).join('');
+}
+function availBadge(val) {
+  if (!val || val === 'N/A') return '<span style="color:var(--text3)">—</span>';
+  const v = val.toLowerCase();
+  if (v.includes('in stock') || v.includes('instock')) return `<span class="badge badge-green">${val}</span>`;
+  if (v.includes('low')) return `<span class="badge badge-amber">${val}</span>`;
+  return `<span class="badge badge-red">${val}</span>`;
+}
+
+// ── Run spider ──
+async function runSpider() {
+  const query = document.getElementById('query').value.trim();
+  if (!query) { alert('Please enter a search query.'); return; }
+
+  // Reset state
+  results = []; scanned = 0; found = 0; skipped = 0;
+  startTime = Date.now();
+  currentJobId = null;
+  if (eventSource) { eventSource.close(); eventSource = null; }
+  clearInterval(timerInterval);
+
+  document.getElementById('runBtn').disabled = true;
+  document.getElementById('runBtn').innerHTML = '<i class="ti ti-loader"></i> Running…';
+  document.getElementById('progressWrap').style.display = 'block';
+  document.getElementById('progressFill').style.width = '0%';
+  document.getElementById('logBox').innerHTML = '';
+  updateMetrics();
+  renderResults();
+  setStatus('running', 'Submitting job…');
+  timerInterval = setInterval(updateTimer, 200);
+
+  // Gather config
+  const fields = [];
+  if (document.getElementById('f_price').checked) fields.push('price');
+  if (document.getElementById('f_rating').checked) fields.push('rating');
+  if (document.getElementById('f_reviews').checked) fields.push('reviews');
+  if (document.getElementById('f_brand').checked) fields.push('brand');
+  if (document.getElementById('f_avail').checked) fields.push('availability');
+  if (document.getElementById('f_desc').checked) fields.push('description');
+
+  const config = {
+    query,
+    pages: parseInt(document.getElementById('pages').value),
+    threads: parseInt(document.getElementById('threads').value),
+    buy_signals: getTags('buy-wrap'),
+    skip_domains: getTags('skip-wrap'),
+    extract_fields: fields,
+    serpapi_key: document.getElementById('apikey').value.trim() || null,
+  };
+
+  try {
+    const resp = await fetch(API + '/api/jobs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    const { job_id } = await resp.json();
+    currentJobId = job_id;
+    setStatus('running', `Job started (${job_id.slice(0,8)}…) — fetching Google results…`);
+    openStream(job_id, config.pages * 10);
+  } catch (err) {
+    setStatus('error', 'Error: ' + err.message);
+    appendLog('err', '❌ ' + err.message);
+    finishRun();
+  }
+}
+
+function openStream(jobId, totalUrls) {
+  eventSource = new EventSource(API + `/api/jobs/${jobId}/stream`);
+  let urlsSeen = 0;
+
+  eventSource.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+
+    if (msg.type === 'stream_end') {
+      eventSource.close();
+      return;
+    }
+    if (msg.type === 'status') {
+      setStatus('running', msg.msg);
+    }
+    if (msg.type === 'log') {
+      urlsSeen++;
+      scanned = msg.metrics?.scanned ?? scanned + 1;
+      found = msg.metrics?.found ?? found;
+      skipped = msg.metrics?.skipped ?? skipped;
+      if (msg.status === 'ok') appendLog('ok', msg.msg);
+      else if (msg.status === 'err') appendLog('err', msg.msg);
+      else appendLog('skip', msg.msg);
+      updateMetrics();
+      const pct = Math.min(Math.round((urlsSeen / totalUrls) * 100), 99);
+      document.getElementById('progressFill').style.width = pct + '%';
+      document.getElementById('progressPct').textContent = pct + '%';
+      setStatus('running', `Scanning — ${scanned} checked, ${found} product pages found…`);
+    }
+    if (msg.type === 'product') {
+      results.push(msg.data);
+      renderResults();
+    }
+    if (msg.type === 'done') {
+      scanned = msg.metrics?.scanned ?? scanned;
+      found = msg.metrics?.found ?? found;
+      skipped = msg.metrics?.skipped ?? skipped;
+      if (msg.results) { results = msg.results; renderResults(); }
+      updateMetrics();
+      document.getElementById('progressFill').style.width = '100%';
+      document.getElementById('progressPct').textContent = '100%';
+      document.getElementById('progressLabel').textContent = 'Complete';
+      setStatus('done', `Done — ${found} product pages found in ${msg.elapsed}s`);
+      eventSource.close();
+      finishRun();
+    }
+    if (msg.type === 'error') {
+      appendLog('err', '❌ ' + msg.msg);
+      setStatus('error', 'Error: ' + msg.msg);
+      eventSource.close();
+      finishRun();
+    }
+  };
+
+  eventSource.onerror = () => {
+    setStatus('error', 'Stream connection lost.');
+    eventSource.close();
+    finishRun();
+  };
+}
+
+function finishRun() {
+  clearInterval(timerInterval);
+  updateTimer();
+  document.getElementById('runBtn').disabled = false;
+  document.getElementById('runBtn').innerHTML = '<i class="ti ti-refresh"></i> Run again';
+}
+
+// ── Export ──
+async function exportData(fmt) {
+  if (!currentJobId) {
+    // export from in-memory results
+    if (!results.length) { alert('No results to export yet.'); return; }
+    if (fmt === 'json') {
+      download(JSON.stringify(results, null, 2), 'products.json', 'application/json');
+    } else {
+      const keys = Object.keys(results[0]);
+      const rows = [keys.join(','), ...results.map(r => keys.map(k => `"${(r[k]||'').toString().replace(/"/g,'""')}"`).join(','))];
+      download(rows.join('\n'), 'products.csv', 'text/csv');
+    }
+    return;
+  }
+  if (fmt === 'csv') {
+    window.open(API + `/api/jobs/${currentJobId}/results?fmt=csv`);
+  } else {
+    const r = await fetch(API + `/api/jobs/${currentJobId}/results`);
+    const data = await r.json();
+    download(JSON.stringify(data.results, null, 2), 'products.json', 'application/json');
+  }
+}
+
+function download(content, filename, type) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([content], { type }));
+  a.download = filename;
+  a.click();
+}
+</script>
+</body>
+</html>
