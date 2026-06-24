@@ -178,7 +178,7 @@ async def _search_urls(query: str, engine: str, max_results: int = 5) -> list:
     return results
 
 
-async def _find_price_for_product(product: Product, engine: str) -> dict:
+async def _find_price_for_product(product: Product, engine: str) -> dict: #NOT ACCURATE ENOUGH (IT IS NOT FINDING THE ACTUALE PRICE ONLY A RANDOM NUMBER)
     """Return best found price + meta for one product."""
     # Build query — SKU is most specific
     if product.sku:
