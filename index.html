@@ -5,392 +5,340 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Product Spider</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.x/dist/tabler-icons.min.css">
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+:root {
+  --bg: #f9f9f8;
+  --surface: #ffffff;
+  --surface2: #f4f4f2;
+  --border: rgba(0,0,0,0.10);
+  --border2: rgba(0,0,0,0.18);
+  --text: #1a1a18;
+  --text2: #6b6b67;
+  --text3: #a0a09c;
+  --accent: #1a1a18;
+  --green: #1D9E75;
+  --green-bg: #EAF3DE;
+  --green-text: #3B6D11;
+  --amber-bg: #FAEEDA;
+  --amber-text: #854F0B;
+  --red-bg: #FCEBEB;
+  --red-text: #A32D2D;
+  --blue-bg: #E6F1FB;
+  --blue-text: #185FA5;
+  --radius: 8px;
+  --radius-lg: 12px;
+}
+
+@media (prefers-color-scheme: dark) {
   :root {
-    --bg: #f9f9f8;
-    --surface: #ffffff;
-    --surface2: #f4f4f2;
-    --border: rgba(0,0,0,0.10);
-    --border2: rgba(0,0,0,0.18);
-    --text: #1a1a18;
-    --text2: #6b6b67;
-    --text3: #a0a09c;
-    --accent: #1a1a18;
-    --green: #1D9E75;
-    --green-bg: #EAF3DE;
-    --green-text: #3B6D11;
-    --amber-bg: #FAEEDA;
-    --amber-text: #854F0B;
-    --red-bg: #FCEBEB;
-    --red-text: #A32D2D;
-    --blue-bg: #E6F1FB;
-    --blue-text: #185FA5;
-    --radius: 8px;
-    --radius-lg: 12px;
+    --bg: #1a1a18;
+    --surface: #242422;
+    --surface2: #2e2e2c;
+    --border: rgba(255,255,255,0.10);
+    --border2: rgba(255,255,255,0.18);
+    --text: #f0f0ee;
+    --text2: #a0a09c;
+    --text3: #6b6b67;
+    --accent: #f0f0ee;
+    --green-bg: #0a2e1e;
+    --green-text: #5DCAA5;
+    --amber-bg: #2e1e08;
+    --amber-text: #FAC775;
+    --red-bg: #2e0a0a;
+    --red-text: #F09595;
+    --blue-bg: #0a1e2e;
+    --blue-text: #85B7EB;
   }
+}
 
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #1a1a18;
-      --surface: #242422;
-      --surface2: #2e2e2c;
-      --border: rgba(255,255,255,0.10);
-      --border2: rgba(255,255,255,0.18);
-      --text: #f0f0ee;
-      --text2: #a0a09c;
-      --text3: #6b6b67;
-      --accent: #f0f0ee;
-      --green-bg: #0a2e1e;
-      --green-text: #5DCAA5;
-      --amber-bg: #2e1e08;
-      --amber-text: #FAC775;
-      --red-bg: #2e0a0a;
-      --red-text: #F09595;
-      --blue-bg: #0a1e2e;
-      --blue-text: #85B7EB;
-    }
-  }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  font-size: 15px;
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+}
 
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    min-height: 100vh;
-    font-size: 15px;
-    line-height: 1.5;
-  }
+/* ── Tab bar ── */
+.page-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: var(--surface);
+  border-bottom: 0.5px solid var(--border);
+  padding: 0 1.5rem;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  flex-shrink: 0;
+}
+.tabs-logo {
+  font-size: 15px;
+  font-weight: 600;
+  margin-right: 1.5rem;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.page-tab {
+  padding: 13px 18px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text2);
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: -0.5px;
+}
+.page-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.page-tab:hover:not(.active) { color: var(--text); }
 
-  /* Layout */
-  .app { display: flex; min-height: 100vh; }
+/* ── Page wrapper ── */
+.page { flex: 1; display: none; }
+.page.active { display: flex; }
 
-  .sidebar {
-    width: 320px;
-    flex-shrink: 0;
-    background: var(--surface);
-    border-right: 0.5px solid var(--border);
-    padding: 1.5rem;
-    display: flex;
-    flex-direction: column;
-    gap: 1.25rem;
-    overflow-y: auto;
-    height: 100vh;
-    position: sticky;
-    top: 0;
-  }
+/* ── App layout ── */
+.app { display: flex; flex: 1; min-height: 0; }
 
-  .main {
-    flex: 1;
-    padding: 1.5rem;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    min-width: 0;
-  }
+.sidebar {
+  width: 300px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-right: 0.5px solid var(--border);
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  overflow-y: auto;
+  height: calc(100vh - 46px);
+  position: sticky;
+  top: 46px;
+}
 
-  /* Header */
-  .logo { display: flex; align-items: center; gap: 8px; }
-  .logo h1 { font-size: 18px; font-weight: 600; }
-  .logo .icon { font-size: 22px; }
-  .logo p { font-size: 12px; color: var(--text2); margin-top: 2px; }
+.main {
+  flex: 1;
+  padding: 1.25rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+}
 
-  /* Section labels */
-  .section-label {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--text3);
-    margin-bottom: 6px;
-  }
+/* Header */
+.logo { display: flex; align-items: center; gap: 8px; }
+.logo h1 { font-size: 17px; font-weight: 600; }
+.logo .icon { font-size: 20px; }
+.logo p { font-size: 12px; color: var(--text2); margin-top: 2px; }
 
-  /* Form elements */
-  label { font-size: 13px; color: var(--text2); display: block; margin-bottom: 4px; }
-  input[type=text], input[type=password], input[type=number], select, textarea {
-    width: 100%;
-    padding: 7px 10px;
-    font-size: 13px;
-    border: 0.5px solid var(--border2);
-    border-radius: var(--radius);
-    background: var(--surface2);
-    color: var(--text);
-    font-family: inherit;
-    transition: border-color 0.15s;
-  }
-  input:focus, select:focus, textarea:focus {
-    outline: none;
-    border-color: var(--accent);
-  }
-  textarea { resize: vertical; min-height: 64px; font-size: 12px; }
+/* Section labels */
+.section-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text3);
+  margin-bottom: 5px;
+}
 
-  .field { margin-bottom: 10px; }
+/* Form elements */
+label { font-size: 13px; color: var(--text2); display: block; margin-bottom: 4px; }
+input[type=text], input[type=password], input[type=number], select, textarea {
+  width: 100%;
+  padding: 7px 10px;
+  font-size: 13px;
+  border: 0.5px solid var(--border2);
+  border-radius: var(--radius);
+  background: var(--surface2);
+  color: var(--text);
+  font-family: inherit;
+  transition: border-color 0.15s;
+}
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+textarea { resize: vertical; min-height: 64px; font-size: 12px; }
+.field { margin-bottom: 8px; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 
-  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+/* Tag input */
+.tag-wrap {
+  display: flex; flex-wrap: wrap; gap: 5px;
+  padding: 5px 7px;
+  border: 0.5px solid var(--border2);
+  border-radius: var(--radius);
+  background: var(--surface2);
+  min-height: 36px;
+  cursor: text;
+}
+.tag-wrap:focus-within { border-color: var(--accent); }
+.tag {
+  display: inline-flex; align-items: center; gap: 3px;
+  background: var(--blue-bg); color: var(--blue-text);
+  border-radius: 99px; padding: 1px 8px;
+  font-size: 12px; font-weight: 500;
+}
+.tag button { background: none; border: none; color: var(--blue-text); cursor: pointer; padding: 0; font-size: 14px; line-height: 1; }
+.tag-input-inner { border: none; background: none; outline: none; font-size: 12px; color: var(--text); min-width: 70px; flex: 1; font-family: inherit; }
 
-  /* Tag input */
-  .tag-wrap {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 5px;
-    padding: 5px 7px;
-    border: 0.5px solid var(--border2);
-    border-radius: var(--radius);
-    background: var(--surface2);
-    min-height: 36px;
-    cursor: text;
-  }
-  .tag-wrap:focus-within { border-color: var(--accent); }
-  .tag {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    background: var(--blue-bg);
-    color: var(--blue-text);
-    border-radius: 99px;
-    padding: 1px 8px;
-    font-size: 12px;
-    font-weight: 500;
-  }
-  .tag button {
-    background: none; border: none; color: var(--blue-text);
-    cursor: pointer; padding: 0; font-size: 14px; line-height: 1;
-  }
-  .tag-input-inner {
-    border: none; background: none; outline: none;
-    font-size: 12px; color: var(--text);
-    min-width: 70px; flex: 1; font-family: inherit;
-  }
+/* Checkboxes */
+.check-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.check-label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text2); cursor: pointer; padding: 4px 6px; border-radius: 6px; transition: background 0.1s; }
+.check-label:hover { background: var(--surface2); }
+.check-label input { accent-color: var(--green); }
 
-  /* Checkboxes */
-  .check-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 5px;
-  }
-  .check-label {
-    display: flex; align-items: center; gap: 6px;
-    font-size: 13px; color: var(--text2); cursor: pointer;
-    padding: 4px 6px;
-    border-radius: 6px;
-    transition: background 0.1s;
-  }
-  .check-label:hover { background: var(--surface2); }
-  .check-label input { accent-color: var(--green); }
+/* Buttons */
+.run-btn {
+  width: 100%; padding: 10px;
+  background: var(--accent); color: var(--surface);
+  border: none; border-radius: var(--radius);
+  font-size: 14px; font-weight: 600; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  font-family: inherit; transition: opacity 0.15s; margin-top: 4px;
+}
+.run-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.run-btn:not(:disabled):hover { opacity: 0.85; }
+.btn-sm {
+  font-size: 12px; padding: 5px 11px;
+  border: 0.5px solid var(--border2); border-radius: var(--radius);
+  background: none; color: var(--text2); cursor: pointer;
+  display: flex; align-items: center; gap: 4px;
+  font-family: inherit; transition: background 0.1s;
+}
+.btn-sm:hover { background: var(--surface2); }
 
-  /* Run button */
-  .run-btn {
-    width: 100%;
-    padding: 10px;
-    background: var(--accent);
-    color: var(--surface);
-    border: none;
-    border-radius: var(--radius);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 7px;
-    font-family: inherit;
-    transition: opacity 0.15s;
-    margin-top: 4px;
-  }
-  .run-btn:disabled { opacity: 0.35; cursor: not-allowed; }
-  .run-btn:not(:disabled):hover { opacity: 0.85; }
+/* Metrics */
+.metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.metric { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius); padding: 12px 14px; }
+.metric .val { font-size: 22px; font-weight: 600; color: var(--text); }
+.metric .lbl { font-size: 12px; color: var(--text2); margin-top: 2px; }
 
-  /* Metrics */
-  .metrics {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 10px;
-  }
-  .metric {
-    background: var(--surface);
-    border: 0.5px solid var(--border);
-    border-radius: var(--radius);
-    padding: 12px 14px;
-  }
-  .metric .val { font-size: 22px; font-weight: 600; color: var(--text); }
-  .metric .lbl { font-size: 12px; color: var(--text2); margin-top: 2px; }
+/* Status bar */
+.status-bar {
+  display: flex; align-items: center; gap: 9px;
+  padding: 9px 14px;
+  background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius);
+  font-size: 13px; color: var(--text2);
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border2); flex-shrink: 0; }
+.dot.running { background: var(--green); animation: pulse 1.2s infinite; }
+.dot.done { background: var(--green); }
+.dot.error { background: #E24B4A; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
 
-  /* Status bar */
-  .status-bar {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    padding: 9px 14px;
-    background: var(--surface);
-    border: 0.5px solid var(--border);
-    border-radius: var(--radius);
-    font-size: 13px;
-    color: var(--text2);
-  }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border2); flex-shrink: 0; }
-  .dot.running { background: var(--green); animation: pulse 1.2s infinite; }
-  .dot.done { background: var(--green); }
-  .dot.error { background: #E24B4A; }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+/* Progress */
+.progress-wrap { display: none; }
+.progress-header { display: flex; justify-content: space-between; font-size: 12px; color: var(--text2); margin-bottom: 5px; }
+.progress-track { height: 3px; background: var(--surface2); border-radius: 2px; overflow: hidden; }
+.progress-fill { height: 100%; background: var(--green); border-radius: 2px; transition: width 0.4s ease; width: 0%; }
 
-  /* Progress */
-  .progress-wrap { display: none; }
-  .progress-header {
-    display: flex; justify-content: space-between;
-    font-size: 12px; color: var(--text2); margin-bottom: 5px;
-  }
-  .progress-track {
-    height: 3px;
-    background: var(--surface2);
-    border-radius: 2px;
-    overflow: hidden;
-  }
-  .progress-fill {
-    height: 100%;
-    background: var(--green);
-    border-radius: 2px;
-    transition: width 0.4s ease;
-    width: 0%;
-  }
+/* Log */
+.log-box {
+  background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius);
+  padding: 10px 12px; max-height: 180px; overflow-y: auto;
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 12px; line-height: 1.7; color: var(--text2);
+}
+.log-box .ok { color: var(--green); }
+.log-box .skip { color: var(--text3); }
+.log-box .err { color: #E24B4A; }
 
-  /* Log */
-  .log-box {
-    background: var(--surface);
-    border: 0.5px solid var(--border);
-    border-radius: var(--radius);
-    padding: 10px 12px;
-    max-height: 180px;
-    overflow-y: auto;
-    font-family: "SF Mono", "Fira Code", monospace;
-    font-size: 12px;
-    line-height: 1.7;
-    color: var(--text2);
-  }
-  .log-box .ok { color: var(--green); }
-  .log-box .skip { color: var(--text3); }
-  .log-box .err { color: #E24B4A; }
+/* Card */
+.card { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius-lg); padding: 1rem 1.25rem; }
+.card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.card-title { font-size: 13px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 6px; }
+.card-actions { display: flex; gap: 6px; }
 
-  /* Card */
-  .card {
-    background: var(--surface);
-    border: 0.5px solid var(--border);
-    border-radius: var(--radius-lg);
-    padding: 1rem 1.25rem;
-  }
-  .card-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 10px;
-  }
-  .card-title {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text2);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .card-actions { display: flex; gap: 6px; }
+/* Table */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text3); padding: 8px 10px; border-bottom: 0.5px solid var(--border); white-space: nowrap; }
+td { padding: 9px 10px; border-bottom: 0.5px solid var(--border); color: var(--text); vertical-align: top; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--surface2); }
 
-  /* Export buttons */
-  .btn-sm {
-    font-size: 12px;
-    padding: 5px 11px;
-    border: 0.5px solid var(--border2);
-    border-radius: var(--radius);
-    background: none;
-    color: var(--text2);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-family: inherit;
-    transition: background 0.1s;
-  }
-  .btn-sm:hover { background: var(--surface2); }
+/* Badges */
+.badge { display: inline-flex; align-items: center; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 99px; }
+.badge-green { background: var(--green-bg); color: var(--green-text); }
+.badge-amber { background: var(--amber-bg); color: var(--amber-text); }
+.badge-red { background: var(--red-bg); color: var(--red-text); }
 
-  /* Table */
-  .table-wrap { overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th {
-    text-align: left;
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text3);
-    padding: 8px 10px;
-    border-bottom: 0.5px solid var(--border);
-    white-space: nowrap;
-  }
-  td {
-    padding: 9px 10px;
-    border-bottom: 0.5px solid var(--border);
-    color: var(--text);
-    vertical-align: top;
-    max-width: 260px;
-  }
-  tr:last-child td { border-bottom: none; }
-  tr:hover td { background: var(--surface2); }
+/* Empty state */
+.empty-state { text-align: center; padding: 2.5rem 1rem; color: var(--text3); }
+.empty-state i { font-size: 28px; display: block; margin-bottom: 8px; }
+.empty-state p { font-size: 13px; }
 
-  /* Badges */
-  .badge {
-    display: inline-flex; align-items: center;
-    font-size: 11px; font-weight: 600;
-    padding: 2px 8px; border-radius: 99px;
-  }
-  .badge-green { background: var(--green-bg); color: var(--green-text); }
-  .badge-amber { background: var(--amber-bg); color: var(--amber-text); }
-  .badge-red { background: var(--red-bg); color: var(--red-text); }
+/* Divider */
+hr { border: none; border-top: 0.5px solid var(--border); margin: 4px 0; }
 
-  /* Empty state */
-  .empty-state {
-    text-align: center;
-    padding: 2.5rem 1rem;
-    color: var(--text3);
-  }
-  .empty-state i { font-size: 28px; display: block; margin-bottom: 8px; }
-  .empty-state p { font-size: 13px; }
+/* Connection banner */
+.banner { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: var(--radius); font-size: 12px; font-weight: 500; }
+.banner.ok { background: var(--green-bg); color: var(--green-text); }
+.banner.err { background: var(--red-bg); color: var(--red-text); }
+.banner.warn { background: var(--amber-bg); color: var(--amber-text); }
 
-  /* Divider */
-  hr { border: none; border-top: 0.5px solid var(--border); margin: 4px 0; }
+/* Link */
+a { color: var(--blue-text); text-decoration: none; }
+a:hover { text-decoration: underline; }
 
-  /* Connection banner */
-  .banner {
-    display: flex; align-items: center; gap: 8px;
-    padding: 8px 12px;
-    border-radius: var(--radius);
-    font-size: 12px;
-    font-weight: 500;
-  }
-  .banner.ok { background: var(--green-bg); color: var(--green-text); }
-  .banner.err { background: var(--red-bg); color: var(--red-text); }
-  .banner.warn { background: var(--amber-bg); color: var(--amber-text); }
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
 
-  /* Link */
-  a { color: var(--blue-text); text-decoration: none; }
-  a:hover { text-decoration: underline; }
+/* Drop zone */
+.drop-zone {
+  border: 1.5px dashed var(--border2);
+  border-radius: var(--radius);
+  padding: 20px 12px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+.drop-zone:hover, .drop-zone.drag-over { border-color: var(--accent); background: var(--surface2); }
+.drop-zone p { font-size: 13px; color: var(--text2); margin-top: 8px; }
+.drop-zone small { color: var(--text3); font-size: 11px; }
 
-  /* Tooltip */
-  [title] { cursor: help; }
+/* Scanning row highlight */
+@keyframes rowpulse { 0%,100%{background:transparent} 50%{background:var(--amber-bg)} }
+tr.scanning td { animation: rowpulse 1.5s infinite; }
 
-  /* Scrollbar */
-  ::-webkit-scrollbar { width: 5px; height: 5px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
-
-  @media (max-width: 768px) {
-    .app { flex-direction: column; }
-    .sidebar { width: 100%; height: auto; position: static; }
-    .metrics { grid-template-columns: repeat(2, 1fr); }
-  }
+@media (max-width: 768px) {
+  .app { flex-direction: column; }
+  .sidebar { width: 100%; height: auto; position: static; }
+  .metrics { grid-template-columns: repeat(2, 1fr); }
+}
 </style>
 </head>
 <body>
+
+<!-- ─── TAB BAR ─── -->
+<nav class="page-tabs">
+  <div class="tabs-logo"><i class="ti ti-spider"></i> Product Spider</div>
+  <button class="page-tab active" data-page="bench" onclick="switchPage('bench')">
+    <i class="ti ti-target"></i> Benchmarking
+  </button>
+  <button class="page-tab" data-page="scrape" onclick="switchPage('scrape')">
+    <i class="ti ti-table-import"></i> Price Scraping
+  </button>
+</nav>
+
+<!-- ══════════════════════════════════════════════════════════
+     PAGE: BENCHMARKING
+══════════════════════════════════════════════════════════ -->
+<div id="page-bench" class="page active">
 <div class="app">
 
   <!-- ─── SIDEBAR ─── -->
@@ -398,7 +346,7 @@
 
     <div class="logo">
       <div>
-        <h1><i class="ti ti-spider icon"></i> Product Spider</h1>
+        <h1><i class="ti ti-spider icon"></i> Spider</h1>
         <p>Find & extract product data from the web</p>
       </div>
     </div>
@@ -414,25 +362,21 @@
       <div class="section-label">Search</div>
       <div class="field">
         <label>Query</label>
-        <input type="text" id="query" placeholder="e.g.  wireless headphones :[] " value=" wireless headphones">
+        <input type="text" id="query" placeholder="e.g.  wireless headphones" value="">
       </div>
       <div class="field">
         <label>Search Engine</label>
         <select id="Search_Engine">
-          <option value="10">Google</option>
-          <option value="11">DuckDuckGo</option>
+          <option value="10">Google (SerpAPI key required)</option>
+          <option value="11" selected>DuckDuckGo</option>
           <option value="12">Bing</option>
+          <option value="13">All Engines</option>
         </select>
       </div>
       <div class="row2">
         <div class="field">
-          <label>Google pages</label>
-          <select id="pages">
-            <option value="1">1 (10 results)</option>
-            <option value="2">2 (20 results)</option>
-            <option value="3" selected>3 (30 results)</option>
-            <option value="5">5 (50 results)</option>
-          </select>
+          <label>Sites to scan</label>
+          <input type="number" id="max_results" min="1" value="30" placeholder="e.g. 50">
         </div>
         <div class="field">
           <label>Threads</label>
@@ -443,6 +387,11 @@
             <option value="50">50 — aggressive</option>
           </select>
         </div>
+      </div>
+      <div class="field">
+        <label class="check-label" style="color:var(--text)">
+          <input type="checkbox" id="verbose"> Verbose log (show all scanned URLs)
+        </label>
       </div>
     </div>
 
@@ -490,7 +439,7 @@
     <!-- API Key -->
     <div>
       <div class="section-label">SerpAPI key <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></div>
-      <input type="password" id="apikey" placeholder="sk-… leave blank to scrape Google directly">
+      <input type="password" id="apikey" placeholder="sk-… leave blank for DDG/Bing">
     </div>
 
     <button class="run-btn" id="runBtn" onclick="runSpider()">
@@ -502,44 +451,26 @@
   <!-- ─── MAIN ─── -->
   <main class="main">
 
-    <!-- Metrics -->
     <div class="metrics">
-      <div class="metric">
-        <div class="val" id="m-scanned">—</div>
-        <div class="lbl">URLs scanned</div>
-      </div>
-      <div class="metric">
-        <div class="val" id="m-found">—</div>
-        <div class="lbl">Product pages</div>
-      </div>
-      <div class="metric">
-        <div class="val" id="m-skipped">—</div>
-        <div class="lbl">Skipped</div>
-      </div>
-      <div class="metric">
-        <div class="val" id="m-time">—</div>
-        <div class="lbl">Time elapsed</div>
-      </div>
+      <div class="metric"><div class="val" id="m-scanned">—</div><div class="lbl">URLs scanned</div></div>
+      <div class="metric"><div class="val" id="m-found">—</div><div class="lbl">Product pages</div></div>
+      <div class="metric"><div class="val" id="m-skipped">—</div><div class="lbl">Skipped</div></div>
+      <div class="metric"><div class="val" id="m-time">—</div><div class="lbl">Time elapsed</div></div>
     </div>
 
-    <!-- Status -->
     <div class="status-bar">
       <div class="dot" id="statusDot"></div>
       <span id="statusText">Ready — configure your search and click Run spider.</span>
     </div>
 
-    <!-- Progress -->
     <div class="progress-wrap" id="progressWrap">
       <div class="progress-header">
         <span id="progressLabel">Scanning…</span>
         <span id="progressPct">0%</span>
       </div>
-      <div class="progress-track">
-        <div class="progress-fill" id="progressFill"></div>
-      </div>
+      <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
     </div>
 
-    <!-- Log -->
     <div class="card">
       <div class="card-head">
         <div class="card-title"><i class="ti ti-terminal-2"></i> Live log</div>
@@ -550,7 +481,6 @@
       <div class="log-box" id="logBox">Waiting for spider to start…</div>
     </div>
 
-    <!-- Results -->
     <div class="card">
       <div class="card-head">
         <div class="card-title"><i class="ti ti-table"></i> Results <span id="resultCount" style="font-weight:400;color:var(--text3);margin-left:4px;"></span></div>
@@ -563,24 +493,12 @@
         <table>
           <thead>
             <tr>
-              <th>Product name</th>
-              <th>Price</th>
-              <th>Rating</th>
-              <th>Reviews</th>
-              <th>Brand</th>
-              <th>Availability</th>
-              <th>Source</th>
+              <th>Product name</th><th>Price</th><th>Rating</th>
+              <th>Reviews</th><th>Brand</th><th>Availability</th><th>Source</th>
             </tr>
           </thead>
           <tbody id="resultsBody">
-            <tr>
-              <td colspan="7">
-                <div class="empty-state">
-                  <i class="ti ti-mood-empty"></i>
-                  <p>No results yet — run the spider to populate this table.</p>
-                </div>
-              </td>
-            </tr>
+            <tr><td colspan="7"><div class="empty-state"><i class="ti ti-mood-empty"></i><p>No results yet — run the spider to populate this table.</p></div></td></tr>
           </tbody>
         </table>
       </div>
@@ -588,32 +506,158 @@
 
   </main>
 </div>
+</div><!-- /page-bench -->
+
+
+<!-- ══════════════════════════════════════════════════════════
+     PAGE: PRICE SCRAPING
+══════════════════════════════════════════════════════════ -->
+<div id="page-scrape" class="page">
+<div class="app">
+
+  <!-- ─── SIDEBAR ─── -->
+  <aside class="sidebar">
+
+    <div class="logo">
+      <div>
+        <h1><i class="ti ti-table-import icon"></i> Price Scout</h1>
+        <p>Upload a catalog, find competitor prices</p>
+      </div>
+    </div>
+
+    <div id="sBanner" class="banner warn">
+      <i class="ti ti-wifi-off"></i> Connecting to backend…
+    </div>
+
+    <hr>
+
+    <!-- File upload -->
+    <div>
+      <div class="section-label">Catalog file</div>
+      <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+        <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" style="display:none" onchange="handleFile(this.files[0])">
+        <i class="ti ti-cloud-upload" style="font-size:26px;color:var(--text3)"></i>
+        <p>Drop CSV or Excel file<br><small>or click to browse</small></p>
+      </div>
+      <div id="fileInfo" style="display:none;font-size:12px;color:var(--text2);margin-top:6px;padding:6px 8px;background:var(--surface2);border-radius:var(--radius)"></div>
+    </div>
+
+    <hr>
+
+    <!-- Filter by status -->
+    <div>
+      <div class="section-label">Include products</div>
+      <div style="display:flex;flex-direction:column;gap:4px;">
+        <label class="check-label"><input type="checkbox" id="f_active" checked> Active</label>
+        <label class="check-label"><input type="checkbox" id="f_draft"> Draft / inactive</label>
+      </div>
+    </div>
+
+    <hr>
+
+    <!-- Engine -->
+    <div>
+      <div class="section-label">Search engine</div>
+      <div class="field">
+        <select id="s_engine">
+          <option value="duckduckgo" selected>DuckDuckGo</option>
+          <option value="bing">Bing</option>
+          <option value="all">All Engines</option>
+          <option value="google">Google (SerpAPI key required)</option>
+        </select>
+      </div>
+      <div class="section-label" style="margin-top:6px;">SerpAPI key <span style="font-weight:400;text-transform:none">(optional)</span></div>
+      <input type="password" id="s_apikey" placeholder="sk-…">
+    </div>
+
+    <hr>
+
+    <div style="font-size:12px;color:var(--text2);line-height:1.5" id="sProductCount">
+      No products loaded. Upload a file to start.
+    </div>
+
+    <button class="run-btn" id="scrapeBtn" onclick="runScrape()" disabled>
+      <i class="ti ti-player-play"></i> Scrape prices
+    </button>
+
+  </aside>
+
+  <!-- ─── MAIN ─── -->
+  <main class="main">
+
+    <div class="metrics">
+      <div class="metric"><div class="val" id="sm-loaded">—</div><div class="lbl">Products loaded</div></div>
+      <div class="metric"><div class="val" id="sm-done">—</div><div class="lbl">Prices found</div></div>
+      <div class="metric"><div class="val" id="sm-missing">—</div><div class="lbl">Not found</div></div>
+      <div class="metric"><div class="val" id="sm-time">—</div><div class="lbl">Time elapsed</div></div>
+    </div>
+
+    <div class="status-bar">
+      <div class="dot" id="sDot"></div>
+      <span id="sStatus">Upload a CSV or Excel file to get started.</span>
+    </div>
+
+    <div class="progress-wrap" id="sProgressWrap">
+      <div class="progress-header">
+        <span id="sProgressLabel">Searching…</span>
+        <span id="sProgressPct">0%</span>
+      </div>
+      <div class="progress-track"><div class="progress-fill" id="sProgressFill"></div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">
+          <i class="ti ti-table"></i> Catalog
+          <span id="sResultCount" style="font-weight:400;color:var(--text3);margin-left:4px;"></span>
+        </div>
+        <div class="card-actions">
+          <button class="btn-sm" onclick="toggleSelectAll()"><i class="ti ti-checkbox"></i> Toggle all</button>
+          <button class="btn-sm" onclick="sScrapeExport()"><i class="ti ti-download"></i> Export CSV</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th><input type="checkbox" id="selectAllChk" onchange="selectAllRows(this.checked)" style="accent-color:var(--green)"></th>
+              <th>Title</th>
+              <th>SKU</th>
+              <th>Vendor</th>
+              <th>Type</th>
+              <th>Status</th>
+              <th>Your Qty</th>
+              <th>Your Price</th>
+              <th>Found Price</th>
+              <th>Δ %</th>
+              <th>Availability</th>
+              <th>Source</th>
+            </tr>
+          </thead>
+          <tbody id="sResultsBody">
+            <tr><td colspan="12"><div class="empty-state"><i class="ti ti-file-spreadsheet"></i><p>Upload a CSV or Excel file to see your catalog here.</p></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+</div>
+</div><!-- /page-scrape -->
+
 
 <script>
 const API = window.location.origin;
-let currentJobId = null;
-let results = [];
-let scanned = 0, found = 0, skipped = 0;
-let startTime = null;
-let timerInterval = null;
-let eventSource = null;
+// ══════════════════════════════════
+//  SHARED
+// ══════════════════════════════════
 
-// ── Connection check ──
-async function checkConnection() {
-  try {
-    const r = await fetch(API + '/health', { signal: AbortSignal.timeout(3000) });
-    if (r.ok) {
-      document.getElementById('connectionBanner').className = 'banner ok';
-      document.getElementById('connectionBanner').innerHTML = '<i class="ti ti-wifi"></i> Backend connected — ready';
-    } else throw new Error();
-  } catch {
-    document.getElementById('connectionBanner').className = 'banner err';
-    document.getElementById('connectionBanner').innerHTML = '<i class="ti ti-wifi-off"></i> Cannot reach backend — is the server running?';
-  }
+function switchPage(page) {
+  document.querySelectorAll('.page-tab').forEach(t => t.classList.toggle('active', t.dataset.page === page));
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-' + page).classList.add('active');
 }
-checkConnection();
 
-// ── Tag helpers ──
 function addTag(e, wrapId, inputId) {
   if (e.key !== 'Enter') return;
   const inp = document.getElementById(inputId);
@@ -632,7 +676,54 @@ function getTags(wrapId) {
     .map(t => t.textContent.replace('×','').trim()).filter(Boolean);
 }
 
-// ── UI helpers ──
+function availBadge(val) {
+  if (!val || val === 'N/A' || val === '—' || val === 'Unknown') return '<span style="color:var(--text3)">—</span>';
+  const v = val.toLowerCase();
+  if (v.includes('in stock') || v.includes('instock') || v.includes('disponible')) return `<span class="badge badge-green">${val}</span>`;
+  if (v.includes('low') || v.includes('limited')) return `<span class="badge badge-amber">${val}</span>`;
+  if (v.includes('out') || v.includes('unavail') || v.includes('rupture') || v.includes('error')) return `<span class="badge badge-red">${val}</span>`;
+  return `<span class="badge badge-amber">${val}</span>`;
+}
+
+function download(content, filename, type) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([content], { type }));
+  a.download = filename;
+  a.click();
+}
+
+// ── Connection check ──
+async function checkConnection() {
+  try {
+    const r = await fetch(API + '/health', { signal: AbortSignal.timeout(3000) });
+    const ok = r.ok;
+    const okHtml = '<i class="ti ti-wifi"></i> Backend connected — ready';
+    const errHtml = '<i class="ti ti-wifi-off"></i> Cannot reach backend — is the server running?';
+    document.getElementById('connectionBanner').className = ok ? 'banner ok' : 'banner err';
+    document.getElementById('connectionBanner').innerHTML = ok ? okHtml : errHtml;
+    document.getElementById('sBanner').className = ok ? 'banner ok' : 'banner err';
+    document.getElementById('sBanner').innerHTML = ok ? okHtml : errHtml;
+  } catch {
+    ['connectionBanner','sBanner'].forEach(id => {
+      document.getElementById(id).className = 'banner err';
+      document.getElementById(id).innerHTML = '<i class="ti ti-wifi-off"></i> Cannot reach backend — is the server running?';
+    });
+  }
+}
+checkConnection();
+
+
+// ══════════════════════════════════
+//  BENCHMARKING PAGE
+// ══════════════════════════════════
+
+let currentJobId = null;
+let results = [];
+let scanned = 0, found = 0, skipped = 0;
+let startTime = null;
+let timerInterval = null;
+let eventSource = null;
+
 function setStatus(state, text) {
   document.getElementById('statusDot').className = 'dot ' + state;
   document.getElementById('statusText').textContent = text;
@@ -643,8 +734,7 @@ function updateMetrics() {
   document.getElementById('m-skipped').textContent = skipped;
 }
 function updateTimer() {
-  const s = ((Date.now() - startTime) / 1000).toFixed(1);
-  document.getElementById('m-time').textContent = s + 's';
+  document.getElementById('m-time').textContent = ((Date.now() - startTime) / 1000).toFixed(1) + 's';
 }
 function appendLog(cls, msg) {
   const box = document.getElementById('logBox');
@@ -670,41 +760,27 @@ function renderResults() {
       <td>${r.reviews && r.reviews !== 'N/A' ? r.reviews : '<span style="color:var(--text3)">—</span>'}</td>
       <td>${r.brand && r.brand !== 'N/A' ? r.brand : '<span style="color:var(--text3)">—</span>'}</td>
       <td>${availBadge(r.availability)}</td>
-      <td><a href="${r.source_url || '#'}" target="_blank" rel="noopener">${r.site || r.source_url || '—'} <i class="ti ti-external-link" style="font-size:11px"></i></a></td>
+      <td><a href="${r.source_url || '#'}" target="_blank" rel="noopener">${r.site || (r.source_url ? new URL(r.source_url).hostname : '—')} <i class="ti ti-external-link" style="font-size:11px"></i></a></td>
     </tr>
   `).join('');
 }
-function availBadge(val) {
-  if (!val || val === 'N/A') return '<span style="color:var(--text3)">—</span>';
-  const v = val.toLowerCase();
-  if (v.includes('in stock') || v.includes('instock')) return `<span class="badge badge-green">${val}</span>`;
-  if (v.includes('low')) return `<span class="badge badge-amber">${val}</span>`;
-  return `<span class="badge badge-red">${val}</span>`;
-}
 
-// ── Run spider ──
 async function runSpider() {
   const query = document.getElementById('query').value.trim();
   if (!query) { alert('Please enter a search query.'); return; }
-
-  // Reset state
   results = []; scanned = 0; found = 0; skipped = 0;
   startTime = Date.now();
   currentJobId = null;
   if (eventSource) { eventSource.close(); eventSource = null; }
   clearInterval(timerInterval);
-
   document.getElementById('runBtn').disabled = true;
   document.getElementById('runBtn').innerHTML = '<i class="ti ti-loader"></i> Running…';
   document.getElementById('progressWrap').style.display = 'block';
   document.getElementById('progressFill').style.width = '0%';
   document.getElementById('logBox').innerHTML = '';
-  updateMetrics();
-  renderResults();
+  updateMetrics(); renderResults();
   setStatus('running', 'Submitting job…');
   timerInterval = setInterval(updateTimer, 200);
-
-  // Gather config
   const fields = [];
   if (document.getElementById('f_price').checked) fields.push('price');
   if (document.getElementById('f_rating').checked) fields.push('rating');
@@ -712,30 +788,28 @@ async function runSpider() {
   if (document.getElementById('f_brand').checked) fields.push('brand');
   if (document.getElementById('f_avail').checked) fields.push('availability');
   if (document.getElementById('f_desc').checked) fields.push('description');
-
-  const engineMap = { '10': 'google', '11': 'duckduckgo', '12': 'bing' };
+  const engineMap = { '10': 'google', '11': 'duckduckgo', '12': 'bing', '13': 'all' };
   const config = {
     query,
-    pages: parseInt(document.getElementById('pages').value),
+    max_results: Math.max(1, parseInt(document.getElementById('max_results').value) || 30),
     threads: parseInt(document.getElementById('threads').value),
     buy_signals: getTags('buy-wrap'),
     skip_domains: getTags('skip-wrap'),
     extract_fields: fields,
     serpapi_key: document.getElementById('apikey').value.trim() || null,
     search_engine: engineMap[document.getElementById('Search_Engine').value] || 'duckduckgo',
+    verbose: document.getElementById('verbose').checked,
   };
-
   try {
     const resp = await fetch(API + '/api/jobs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(config),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config),
     });
     if (!resp.ok) throw new Error(await resp.text());
     const { job_id } = await resp.json();
     currentJobId = job_id;
-    setStatus('running', `Job started (${job_id.slice(0,8)}…) — fetching Google results…`);
-    openStream(job_id, config.pages * 10);
+    setStatus('running', `Job started — searching ${config.search_engine}…`);
+    appendLog('', `Job ${job_id.slice(0,8)}… started`);
+    openStream(job_id, config.max_results);
   } catch (err) {
     setStatus('error', 'Error: ' + err.message);
     appendLog('err', '❌ ' + err.message);
@@ -746,21 +820,14 @@ async function runSpider() {
 function openStream(jobId, totalUrls) {
   eventSource = new EventSource(API + `/api/jobs/${jobId}/stream`);
   let urlsSeen = 0;
-
   eventSource.onmessage = (e) => {
     const msg = JSON.parse(e.data);
-
-    if (msg.type === 'stream_end') {
-      eventSource.close();
-      return;
-    }
-    if (msg.type === 'status') {
-      setStatus('running', msg.msg);
-    }
+    if (msg.type === 'stream_end') { eventSource.close(); return; }
+    if (msg.type === 'status') setStatus('running', msg.msg);
     if (msg.type === 'log') {
       urlsSeen++;
       scanned = msg.metrics?.scanned ?? scanned + 1;
-      found = msg.metrics?.found ?? found;
+      found   = msg.metrics?.found   ?? found;
       skipped = msg.metrics?.skipped ?? skipped;
       if (msg.status === 'ok') appendLog('ok', msg.msg);
       else if (msg.status === 'err') appendLog('err', msg.msg);
@@ -771,13 +838,10 @@ function openStream(jobId, totalUrls) {
       document.getElementById('progressPct').textContent = pct + '%';
       setStatus('running', `Scanning — ${scanned} checked, ${found} product pages found…`);
     }
-    if (msg.type === 'product') {
-      results.push(msg.data);
-      renderResults();
-    }
+    if (msg.type === 'product') { results.push(msg.data); renderResults(); }
     if (msg.type === 'done') {
       scanned = msg.metrics?.scanned ?? scanned;
-      found = msg.metrics?.found ?? found;
+      found   = msg.metrics?.found   ?? found;
       skipped = msg.metrics?.skipped ?? skipped;
       if (msg.results) { results = msg.results; renderResults(); }
       updateMetrics();
@@ -785,35 +849,25 @@ function openStream(jobId, totalUrls) {
       document.getElementById('progressPct').textContent = '100%';
       document.getElementById('progressLabel').textContent = 'Complete';
       setStatus('done', `Done — ${found} product pages found in ${msg.elapsed}s`);
-      eventSource.close();
-      finishRun();
+      eventSource.close(); finishRun();
     }
     if (msg.type === 'error') {
       appendLog('err', '❌ ' + msg.msg);
       setStatus('error', 'Error: ' + msg.msg);
-      eventSource.close();
-      finishRun();
+      eventSource.close(); finishRun();
     }
   };
-
-  eventSource.onerror = () => {
-    setStatus('error', 'Stream connection lost.');
-    eventSource.close();
-    finishRun();
-  };
+  eventSource.onerror = () => { setStatus('error', 'Stream connection lost.'); eventSource.close(); finishRun(); };
 }
 
 function finishRun() {
-  clearInterval(timerInterval);
-  updateTimer();
+  clearInterval(timerInterval); updateTimer();
   document.getElementById('runBtn').disabled = false;
   document.getElementById('runBtn').innerHTML = '<i class="ti ti-refresh"></i> Run again';
 }
 
-// ── Export ──
 async function exportData(fmt) {
   if (!currentJobId) {
-    // export from in-memory results
     if (!results.length) { alert('No results to export yet.'); return; }
     if (fmt === 'json') {
       download(JSON.stringify(results, null, 2), 'products.json', 'application/json');
@@ -824,21 +878,329 @@ async function exportData(fmt) {
     }
     return;
   }
-  if (fmt === 'csv') {
-    window.open(API + `/api/jobs/${currentJobId}/results?fmt=csv`);
-  } else {
+  if (fmt === 'csv') window.open(API + `/api/jobs/${currentJobId}/results?fmt=csv`);
+  else {
     const r = await fetch(API + `/api/jobs/${currentJobId}/results`);
     const data = await r.json();
     download(JSON.stringify(data.results, null, 2), 'products.json', 'application/json');
   }
 }
 
-function download(content, filename, type) {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([content], { type }));
-  a.download = filename;
-  a.click();
+
+// ══════════════════════════════════
+//  PRICE SCRAPING PAGE
+// ══════════════════════════════════
+
+let sProducts = [];       // all parsed products
+let sFiltered = [];       // after filter (active/draft toggle)
+let sScrapeResults = {};  // { index → result object }
+let sScrapeJobId = null;
+let sScrapeEventSource = null;
+let sTimer = null;
+let sStartTime = null;
+
+function setSStatus(state, text) {
+  document.getElementById('sDot').className = 'dot ' + (state || '');
+  document.getElementById('sStatus').textContent = text;
 }
+
+// ── File handling ──
+
+const dropZone = document.getElementById('dropZone');
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) { document.getElementById('fileInput').value = ''; handleFile(file); }
+});
+
+function handleFile(file) {
+  if (!file) return;
+  const name = file.name.toLowerCase();
+  const info = document.getElementById('fileInfo');
+  info.style.display = 'block';
+  info.textContent = `Loading: ${file.name}…`;
+
+  if (name.endsWith('.csv')) {
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: res => parseProducts(res.data, file.name),
+      error: err => { info.textContent = 'Error: ' + err.message; }
+    });
+  } else if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const data = XLSX.utils.sheet_to_json(sheet);
+        parseProducts(data, file.name);
+      } catch(err) { info.textContent = 'Error reading Excel: ' + err.message; }
+    };
+    reader.readAsArrayBuffer(file);
+  } else {
+    alert('Please upload a .csv or .xlsx file.');
+  }
+}
+
+function parseProducts(rows, filename) {
+  sProducts = rows.map(row => {
+    const r = {};
+    for (const [k, v] of Object.entries(row)) r[k.toLowerCase().trim()] = (v ?? '').toString().trim();
+
+    const title = r['title'] || r['name'] || '';
+    if (!title) return null;
+
+    const sku = r['variant sku'] || r['sku'] || '';
+    const vendor = r['vendor'] || r['brand'] || '';
+    const barcode = r['variant barcode'] || r['barcode'] || '';
+    const product_type = r['type'] || r['product type'] || '';
+    const status = (r['status'] || '').toLowerCase();
+    const your_qty = parseInt(r['total inventory qty'] || r['variant inventory qty'] || r['qty'] || '0') || 0;
+    const price_raw = r['variant price'] || r['price'] || '';
+    const your_price = price_raw !== '' ? (parseFloat(price_raw.replace(',','.')) || null) : null;
+
+    return { title, sku, vendor, barcode, product_type, status, your_price, your_qty };
+  }).filter(Boolean);
+
+  sScrapeResults = {};
+
+  const info = document.getElementById('fileInfo');
+  info.textContent = `${filename} — ${sProducts.length} products loaded`;
+  document.getElementById('sm-loaded').textContent = sProducts.length;
+  document.getElementById('sm-done').textContent = '0';
+  document.getElementById('sm-missing').textContent = '0';
+  document.getElementById('sm-time').textContent = '—';
+
+  applyFilter();
+  setSStatus('', `${sProducts.length} products loaded — select and click Scrape prices.`);
+}
+
+function applyFilter() {
+  const wantActive = document.getElementById('f_active').checked;
+  const wantDraft  = document.getElementById('f_draft').checked;
+  sFiltered = sProducts.filter(p => {
+    const st = p.status.toLowerCase();
+    if (st === 'active' || st === '') return wantActive;
+    return wantDraft;
+  });
+  document.getElementById('scrapeBtn').disabled = sFiltered.length === 0;
+  document.getElementById('sProductCount').textContent =
+    `${sFiltered.length} of ${sProducts.length} products will be scraped.`;
+  document.getElementById('sResultCount').textContent =
+    sFiltered.length ? `(${sFiltered.length})` : '';
+  renderSProducts();
+}
+document.getElementById('f_active').addEventListener('change', applyFilter);
+document.getElementById('f_draft').addEventListener('change', applyFilter);
+
+function selectAllRows(checked) {
+  document.querySelectorAll('.s-chk').forEach(c => c.checked = checked);
+}
+function toggleSelectAll() {
+  const all = document.querySelectorAll('.s-chk');
+  const anyUnchecked = [...all].some(c => !c.checked);
+  all.forEach(c => c.checked = anyUnchecked);
+  document.getElementById('selectAllChk').checked = anyUnchecked;
+}
+
+function renderSProducts() {
+  const body = document.getElementById('sResultsBody');
+  if (!sFiltered.length) {
+    body.innerHTML = '<tr><td colspan="12"><div class="empty-state"><i class="ti ti-file-spreadsheet"></i><p>Upload a CSV or Excel file to see your catalog here.</p></div></td></tr>';
+    return;
+  }
+  body.innerHTML = sFiltered.map((p, i) => {
+    const res = sScrapeResults[i];
+    const statusBadge = p.status === 'active'
+      ? '<span class="badge badge-green">Active</span>'
+      : p.status
+        ? `<span class="badge badge-amber">${p.status}</span>`
+        : '<span style="color:var(--text3)">—</span>';
+
+    let priceHtml = '—';
+    let deltaHtml = '<span style="color:var(--text3)">—</span>';
+    let availHtml = '<span style="color:var(--text3)">—</span>';
+    let sourceHtml = '<span style="color:var(--text3)">—</span>';
+
+    if (res === 'scanning') {
+      priceHtml = '<span style="color:var(--amber-text)">Searching…</span>';
+    } else if (res) {
+      priceHtml = res.found_price
+        ? `<span style="font-weight:600;color:var(--green)">${res.found_price}</span>`
+        : '<span style="color:var(--text3)">Not found</span>';
+
+      if (res.delta_pct != null) {
+        const cls = res.delta_pct > 0 ? 'badge-green' : res.delta_pct < 0 ? 'badge-red' : 'badge-amber';
+        const sign = res.delta_pct > 0 ? '+' : '';
+        deltaHtml = `<span class="badge ${cls}">${sign}${res.delta_pct}%</span>`;
+      }
+
+      availHtml = availBadge(res.found_availability);
+
+      if (res.found_url) {
+        const host = (() => { try { return new URL(res.found_url).hostname.replace('www.',''); } catch { return 'view'; } })();
+        sourceHtml = `<a href="${res.found_url}" target="_blank" rel="noopener" title="${res.found_source || ''}">${host} <i class="ti ti-external-link" style="font-size:11px"></i></a>`;
+      }
+    }
+
+    return `<tr id="srow-${i}" class="${res === 'scanning' ? 'scanning' : ''}">
+      <td><input type="checkbox" class="s-chk" checked style="accent-color:var(--green)"></td>
+      <td style="font-weight:500;max-width:200px;overflow:hidden;text-overflow:ellipsis" title="${p.title}">${p.title}</td>
+      <td style="font-family:monospace;font-size:12px;color:var(--text2)">${p.sku || '—'}</td>
+      <td>${p.vendor || '—'}</td>
+      <td style="color:var(--text2)">${p.product_type || '—'}</td>
+      <td>${statusBadge}</td>
+      <td>${p.your_qty ?? '—'}</td>
+      <td style="font-weight:600">${p.your_price != null ? p.your_price : '—'}</td>
+      <td>${priceHtml}</td>
+      <td>${deltaHtml}</td>
+      <td>${availHtml}</td>
+      <td>${sourceHtml}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Run scrape ──
+
+async function runScrape() {
+  // Gather selected products
+  const checks = document.querySelectorAll('.s-chk');
+  const selectedIndices = sFiltered.map((_, i) => checks[i]?.checked ? i : null).filter(i => i !== null);
+  const selectedProducts = selectedIndices.map(i => sFiltered[i]);
+
+  if (!selectedProducts.length) { alert('Select at least one product to scrape.'); return; }
+
+  // Reset
+  sScrapeResults = {};
+  selectedIndices.forEach(i => { sScrapeResults[i] = 'scanning'; });
+
+  if (sScrapeEventSource) { sScrapeEventSource.close(); sScrapeEventSource = null; }
+  clearInterval(sTimer);
+
+  document.getElementById('scrapeBtn').disabled = true;
+  document.getElementById('scrapeBtn').innerHTML = '<i class="ti ti-loader"></i> Scraping…';
+  document.getElementById('sProgressWrap').style.display = 'block';
+  document.getElementById('sProgressFill').style.width = '0%';
+  document.getElementById('sProgressPct').textContent = '0%';
+  document.getElementById('sm-done').textContent = '0';
+  document.getElementById('sm-missing').textContent = '0';
+
+  sStartTime = Date.now();
+  sTimer = setInterval(() => {
+    document.getElementById('sm-time').textContent = ((Date.now() - sStartTime) / 1000).toFixed(1) + 's';
+  }, 200);
+
+  setSStatus('running', `Starting price search for ${selectedProducts.length} products…`);
+  renderSProducts();
+
+  try {
+    const resp = await fetch(API + '/api/scraper/jobs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        products: selectedProducts,
+        engine: document.getElementById('s_engine').value,
+        serpapi_key: document.getElementById('s_apikey').value.trim() || null,
+      }),
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    const { job_id } = await resp.json();
+    sScrapeJobId = job_id;
+
+    sScrapeEventSource = new EventSource(API + `/api/scraper/jobs/${job_id}/stream`);
+    let resultIdx = 0;
+    let doneCount = 0;
+    let notFoundCount = 0;
+
+    sScrapeEventSource.onmessage = e => {
+      const msg = JSON.parse(e.data);
+
+      if (msg.type === 'stream_end') { sScrapeEventSource.close(); return; }
+      if (msg.type === 'status') setSStatus('running', msg.msg);
+
+      if (msg.type === 'progress') {
+        const pct = Math.round(((msg.current + 1) / msg.total) * 100);
+        document.getElementById('sProgressFill').style.width = pct + '%';
+        document.getElementById('sProgressPct').textContent = pct + '%';
+        setSStatus('running', msg.msg);
+        // Mark current as scanning
+        const globalIdx = selectedIndices[msg.current];
+        if (globalIdx != null) sScrapeResults[globalIdx] = 'scanning';
+        renderSProducts();
+      }
+
+      if (msg.type === 'result') {
+        const globalIdx = selectedIndices[resultIdx];
+        resultIdx++;
+        if (globalIdx != null) {
+          sScrapeResults[globalIdx] = msg.data;
+          if (msg.data.found_price) { doneCount++; } else { notFoundCount++; }
+          document.getElementById('sm-done').textContent = doneCount;
+          document.getElementById('sm-missing').textContent = notFoundCount;
+        }
+        renderSProducts();
+      }
+
+      if (msg.type === 'done') {
+        document.getElementById('sProgressFill').style.width = '100%';
+        document.getElementById('sProgressPct').textContent = '100%';
+        document.getElementById('sProgressLabel').textContent = 'Complete';
+        setSStatus('done', `Done — ${doneCount} prices found in ${msg.elapsed}s`);
+        clearInterval(sTimer);
+        document.getElementById('sm-time').textContent = msg.elapsed + 's';
+        document.getElementById('scrapeBtn').disabled = false;
+        document.getElementById('scrapeBtn').innerHTML = '<i class="ti ti-refresh"></i> Scrape again';
+        sScrapeEventSource.close();
+        renderSProducts();
+      }
+
+      if (msg.type === 'error') {
+        setSStatus('error', 'Error: ' + msg.msg);
+        clearInterval(sTimer);
+        sScrapeEventSource.close();
+        document.getElementById('scrapeBtn').disabled = false;
+        document.getElementById('scrapeBtn').innerHTML = '<i class="ti ti-player-play"></i> Scrape prices';
+      }
+    };
+
+    sScrapeEventSource.onerror = () => {
+      setSStatus('error', 'Stream lost. Check server.');
+      clearInterval(sTimer);
+      sScrapeEventSource.close();
+      document.getElementById('scrapeBtn').disabled = false;
+      document.getElementById('scrapeBtn').innerHTML = '<i class="ti ti-player-play"></i> Scrape prices';
+    };
+
+  } catch (err) {
+    setSStatus('error', 'Error: ' + err.message);
+    clearInterval(sTimer);
+    document.getElementById('scrapeBtn').disabled = false;
+    document.getElementById('scrapeBtn').innerHTML = '<i class="ti ti-player-play"></i> Scrape prices';
+  }
+}
+
+// ── Export scrape results ──
+function sScrapeExport() {
+  if (!sFiltered.length) { alert('No products to export.'); return; }
+  const rows = sFiltered.map((p, i) => {
+    const res = sScrapeResults[i];
+    return {
+      Title: p.title, SKU: p.sku, Vendor: p.vendor, Type: p.product_type,
+      Status: p.status, 'Your Qty': p.your_qty, 'Your Price': p.your_price ?? '',
+      'Found Price': (res && res !== 'scanning') ? (res.found_price ?? '') : '',
+      'Delta %': (res && res !== 'scanning') ? (res.delta_pct ?? '') : '',
+      Availability: (res && res !== 'scanning') ? (res.found_availability ?? '') : '',
+      Source: (res && res !== 'scanning') ? (res.found_url ?? '') : '',
+    };
+  });
+  const keys = Object.keys(rows[0]);
+  const csv = [keys.join(','), ...rows.map(r => keys.map(k => `"${String(r[k] ?? '').replace(/"/g,'""')}"`).join(','))].join('\n');
+  download(csv, 'price_comparison.csv', 'text/csv');
+}
+
 </script>
 </body>
 </html>

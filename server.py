@@ -9,13 +9,15 @@ from datetime import datetime
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, HTMLResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-# Add project to path
 sys.path.insert(0, os.path.dirname(__file__))
 
 app = FastAPI(title="Product Spider API")
+
+# Mount scraper router
+from scraper import router as scraper_router
+app.include_router(scraper_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,155 +26,192 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# In-memory job store
 jobs: dict = {}
 
 
 class SpiderConfig(BaseModel):
     query: str
-    pages: int = 3
+    max_results: int = 30          # total URLs to gather (no upper limit)
     threads: int = 10
     buy_signals: list[str] = ["add to cart", "buy now", "in stock", "checkout"]
     skip_domains: list[str] = ["wikipedia", "reddit", "youtube"]
     extract_fields: list[str] = ["price", "rating", "reviews", "brand", "availability"]
     serpapi_key: Optional[str] = None
-    search_engine: str = "duckduckgo"  # "google" | "duckduckgo" | "bing"
+    search_engine: str = "duckduckgo"   # "google" | "duckduckgo" | "bing" | "all"
+    verbose: bool = False
 
 
 class Job:
     def __init__(self, job_id: str, config: SpiderConfig):
         self.job_id = job_id
         self.config = config
-        self.status = "pending"  # pending | running | done | error
+        self.status = "pending"
         self.events: list[dict] = []
         self.results: list[dict] = []
         self.metrics = {"scanned": 0, "found": 0, "skipped": 0}
         self.start_time = datetime.now()
-        self.queue: asyncio.Queue = asyncio.Queue()
         self.done = False
 
     def push(self, event: dict):
         self.events.append(event)
-        self.queue.put_nowait(event)
 
     def elapsed(self):
         return round((datetime.now() - self.start_time).total_seconds(), 1)
 
 
-async def _search_google(config: SpiderConfig) -> list[str]:
-    """Google via SerpAPI (API key required)."""
-    if not config.serpapi_key:
+# ── Search backends ──────────────────────────────────────────────────────────
+
+async def _search_google(query: str, max_results: int, serpapi_key: str,
+                         skip_domains: list[str]) -> list[str]:
+    if not serpapi_key:
         raise RuntimeError(
-            "Google search requires a SerpAPI key. Add one in the sidebar, "
-            "or switch to DuckDuckGo / Bing."
+            "Google requires a SerpAPI key — add it in the sidebar, or switch engine."
         )
     try:
         from serpapi import GoogleSearch
     except ImportError:
-        raise RuntimeError("google-search-results is not installed. Run: pip install google-search-results")
+        raise RuntimeError("google-search-results not installed: pip install google-search-results")
+
     urls = []
-    for page in range(config.pages):
+    pages = (max_results + 9) // 10
+    for page in range(pages):
         params = {
-            "q": config.query,
-            "api_key": config.serpapi_key,
+            "q": query,
+            "api_key": serpapi_key,
             "start": page * 10,
             "num": 10,
         }
-        search = GoogleSearch(params)
-        results = search.get_dict()
-        for r in results.get("organic_results", []):
-            url = r.get("link")
-            if url and not any(s in url for s in config.skip_domains):
+        data = await asyncio.to_thread(lambda p=params: GoogleSearch(p).get_dict())
+        for r in data.get("organic_results", []):
+            url = r.get("link", "")
+            if url and not any(s in url for s in skip_domains):
                 urls.append(url)
-    return urls
+        if len(urls) >= max_results:
+            break
+    return list(dict.fromkeys(urls))[:max_results]
 
 
-async def _search_duckduckgo(config: SpiderConfig) -> list[str]:
-    """DuckDuckGo via ddgs library (no API key needed)."""
+async def _search_duckduckgo(query: str, max_results: int,
+                              skip_domains: list[str]) -> list[str]:
     try:
         from ddgs import DDGS
     except ImportError:
-        raise RuntimeError("ddgs is not installed. Run: pip install ddgs")
-    max_results = config.pages * 10
-    results = await asyncio.to_thread(
-        lambda: list(DDGS().text(config.query, max_results=max_results))
+        raise RuntimeError("ddgs not installed: pip install ddgs")
+
+    raw = await asyncio.to_thread(
+        lambda: list(DDGS().text(query, max_results=max_results))
     )
     urls = []
-    for r in results:
+    for r in raw:
         url = r.get("href", "")
-        if url and not any(s in url for s in config.skip_domains):
+        if url and not any(s in url for s in skip_domains):
             urls.append(url)
-    return list(dict.fromkeys(urls))
+    return list(dict.fromkeys(urls))[:max_results]
 
 
-async def _search_bing(config: SpiderConfig) -> list[str]:
-    """Bing via HTML scraping (no API key needed)."""
+async def _search_bing(query: str, max_results: int,
+                        skip_domains: list[str]) -> list[str]:
     import requests
     from bs4 import BeautifulSoup
+
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/120.0.0.0 Safari/537.36",
         "Accept-Language": "en-US,en;q=0.9",
     }
     urls = []
-    for page in range(config.pages):
+    pages = (max_results + 9) // 10
+    for page in range(pages):
         try:
             resp = await asyncio.to_thread(
                 lambda p=page: requests.get(
                     "https://www.bing.com/search",
-                    params={"q": config.query, "first": p * 10 + 1, "count": 10},
+                    params={"q": query, "first": p * 10 + 1, "count": 10},
                     headers=headers,
                     timeout=15,
                 )
             )
             soup = BeautifulSoup(resp.text, "lxml")
-            for a in soup.select("li.b_algo h2 a, li.b_algo .b_title a"):
+            for a in soup.select("li.b_algo h2 a"):
                 url = a.get("href", "")
-                if url.startswith("http") and not any(s in url for s in config.skip_domains):
+                if url.startswith("http") and not any(s in url for s in skip_domains):
                     urls.append(url)
             await asyncio.sleep(1)
         except Exception:
             continue
-    return list(dict.fromkeys(urls))
+        if len(urls) >= max_results:
+            break
+    return list(dict.fromkeys(urls))[:max_results]
 
 
-async def fetch_urls(config: SpiderConfig) -> list[str]:
-    """Dispatch to the selected search engine."""
+async def fetch_urls(config: SpiderConfig, job: Job) -> list[str]:
     engine = (config.search_engine or "duckduckgo").lower()
-    if engine == "google":
-        return await _search_google(config)
-    elif engine == "bing":
-        return await _search_bing(config)
-    else:
-        return await _search_duckduckgo(config)
 
+    if engine == "all":
+        # Run all three concurrently, deduplicate
+        tasks = [
+            _search_duckduckgo(config.query, config.max_results, config.skip_domains),
+            _search_bing(config.query, config.max_results, config.skip_domains),
+        ]
+        if config.serpapi_key:
+            tasks.append(
+                _search_google(config.query, config.max_results,
+                               config.serpapi_key, config.skip_domains)
+            )
+        else:
+            job.push({"type": "status",
+                      "msg": "All-engines mode: skipping Google (no SerpAPI key)"})
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        urls = []
+        labels = ["DuckDuckGo", "Bing", "Google"] if config.serpapi_key else ["DuckDuckGo", "Bing"]
+        for label, res in zip(labels, results):
+            if isinstance(res, Exception):
+                job.push({"type": "status", "msg": f"{label} error: {res}"})
+            else:
+                job.push({"type": "status", "msg": f"{label}: {len(res)} URLs"})
+                urls.extend(res)
+        return list(dict.fromkeys(urls))[:config.max_results]
+
+    elif engine == "google":
+        return await _search_google(config.query, config.max_results,
+                                    config.serpapi_key, config.skip_domains)
+    elif engine == "bing":
+        return await _search_bing(config.query, config.max_results, config.skip_domains)
+    else:
+        return await _search_duckduckgo(config.query, config.max_results, config.skip_domains)
+
+
+# ── Spider job ───────────────────────────────────────────────────────────────
 
 async def run_spider_job(job: Job):
-    """Run the full spider pipeline for a job."""
     job.status = "running"
-
     try:
-        # Step 1: fetch URLs
-        engine_label = (job.config.search_engine or "duckduckgo").capitalize()
-        job.push({"type": "status", "msg": f'Searching {engine_label} for "{job.config.query}"…'})
-        urls = await fetch_urls(job.config)
+        engine_label = job.config.search_engine.capitalize()
+        job.push({"type": "status",
+                  "msg": f'Searching {engine_label} for "{job.config.query}"…'})
+
+        urls = await fetch_urls(job.config, job)
 
         if not urls:
-            job.push({"type": "error", "msg": "No URLs found. Try a different query, or add a SerpAPI key for more reliable results."})
+            job.push({"type": "error",
+                      "msg": "No URLs found. Try a different query or engine."})
             job.status = "error"
             job.done = True
             return
 
-        job.push({"type": "status", "msg": f"Found {len(urls)} candidate URLs. Starting crawl…"})
+        job.push({"type": "status",
+                  "msg": f"Found {len(urls)} URLs — starting crawl…"})
 
-        # Step 2: run Scrapy in a subprocess to avoid event loop conflicts
         import tempfile
-
         config_payload = {
             "start_urls": urls,
             "buy_signals": job.config.buy_signals,
             "skip_domains": job.config.skip_domains,
             "extract_fields": job.config.extract_fields,
             "concurrent": job.config.threads,
+            "verbose": job.config.verbose,
         }
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
@@ -189,9 +228,22 @@ async def run_spider_job(job: Job):
             cwd=os.path.dirname(__file__),
         )
 
-        # Stream stdout lines as events
-        async for line in proc.stdout:
-            line = line.decode().strip()
+        async def read_stderr():
+            async for line in proc.stderr:
+                line = line.decode().strip()
+                if not line:
+                    continue
+                # Always surface errors; verbose shows everything
+                if "ERROR" in line or "CRITICAL" in line or job.config.verbose:
+                    job.push({"type": "log", "status": "verbose",
+                              "msg": f"[scrapy] {line}", "url": "",
+                              "metrics": dict(job.metrics),
+                              "elapsed": job.elapsed()})
+
+        asyncio.create_task(read_stderr())
+
+        async for raw in proc.stdout:
+            line = raw.decode().strip()
             if not line:
                 continue
             try:
@@ -220,7 +272,10 @@ async def run_spider_job(job: Job):
                 job.push({"type": "product", "data": clean})
 
         await proc.wait()
-        os.unlink(config_file)
+        try:
+            os.unlink(config_file)
+        except Exception:
+            pass
         try:
             os.unlink(output_file)
         except Exception:
@@ -241,6 +296,8 @@ async def run_spider_job(job: Job):
         job.done = True
 
 
+# ── Routes ───────────────────────────────────────────────────────────────────
+
 @app.post("/api/jobs")
 async def create_job(config: SpiderConfig):
     job_id = str(uuid.uuid4())
@@ -254,29 +311,24 @@ async def create_job(config: SpiderConfig):
 async def stream_job(job_id: str):
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job not found")
-
     job = jobs[job_id]
 
     async def event_generator():
         sent = 0
         while True:
             while sent < len(job.events):
-                event = job.events[sent]
-                yield f"data: {json.dumps(event)}\n\n"
+                yield f"data: {json.dumps(job.events[sent])}\n\n"
                 sent += 1
             if job.done:
                 break
             await asyncio.sleep(0.1)
-        yield "data: {\"type\": \"stream_end\"}\n\n"
+        yield 'data: {"type": "stream_end"}\n\n'
 
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
-        },
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no",
+                 "Connection": "keep-alive"},
     )
 
 
@@ -284,7 +336,6 @@ async def stream_job(job_id: str):
 async def get_results(job_id: str, fmt: str = "json"):
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job not found")
-
     job = jobs[job_id]
 
     if fmt == "csv":
@@ -296,9 +347,8 @@ async def get_results(job_id: str, fmt: str = "json"):
         writer = csv.DictWriter(output, fieldnames=fields)
         writer.writeheader()
         writer.writerows(job.results)
-        content = output.getvalue().encode()
         return StreamingResponse(
-            io.BytesIO(content),
+            io.BytesIO(output.getvalue().encode()),
             media_type="text/csv",
             headers={"Content-Disposition": "attachment; filename=products.csv"},
         )
@@ -330,7 +380,8 @@ async def root():
     with open(html_path, encoding="utf-8") as f:
         return f.read()
 
+#user_input = input('reset the server by pressing "r" ')
 
-if __name__ == "__main__":
+if __name__ == "__main__" : #or user_input == 'r'
     import uvicorn
     uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=False)

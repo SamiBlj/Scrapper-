@@ -6,12 +6,15 @@ class ProductSpider(scrapy.Spider):
     name = "products"
 
     def __init__(self, start_urls=None, buy_signals=None, skip_domains=None,
-                 extract_fields=None, job_id=None, *args, **kwargs):
+                 extract_fields=None, job_id=None, verbose=False, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.start_urls = start_urls or []
+        self.verbose = str(verbose).lower() in ("true", "1", "yes")
         self.buy_signals = buy_signals or [
             "add to cart", "buy now", "in stock", "checkout",
-            "add to bag", "purchase", "order now", "free shipping"
+            "add to bag", "purchase", "order now", "free shipping",
+            "add to basket", "buy", "shop now", "price", "$", "€", "£",
+            "quantity", "qty", "select size", "select color", "ships",
         ]
         self.skip_domains = skip_domains or [
             "wikipedia", "reddit", "youtube", "forum", "quora"
@@ -30,7 +33,7 @@ class ProductSpider(scrapy.Spider):
             yield {
                 "_type": "log",
                 "_status": "skip",
-                "_msg": f"[{response.status}] {domain} → ⛔ Skipped (domain filter)",
+                "_msg": f"[{response.status}] {domain} →  Skipped (domain filter)",
                 "_url": response.url,
             }
             return
@@ -38,19 +41,20 @@ class ProductSpider(scrapy.Spider):
         # Count buy signals
         signals_found = [s for s in self.buy_signals if s in page_text]
 
-        if len(signals_found) < 2:
-            yield {
-                "_type": "log",
-                "_status": "skip",
-                "_msg": f"[{response.status}] {domain} → ⛔ No buy signals ({len(signals_found)} of 2 required)",
-                "_url": response.url,
-            }
+        if len(signals_found) < 1:
+            if self.verbose:
+                yield {
+                    "_type": "log",
+                    "_status": "skip",
+                    "_msg": f"[{response.status}] {domain} → There were No buy signals found",
+                    "_url": response.url,
+                }
             return
 
         yield {
             "_type": "log",
             "_status": "ok",
-            "_msg": f"[{response.status}] {domain} → ✅ Product page — {len(signals_found)} buy signals found",
+            "_msg": f"[{response.status}] {domain} → ✅ Product page — signals: {', '.join(signals_found[:5])}",
             "_url": response.url,
         }
 
