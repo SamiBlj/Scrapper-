@@ -19,6 +19,10 @@ app = FastAPI(title="Product Spider API")
 from scraper import router as scraper_router
 app.include_router(scraper_router)
 
+# Mount prospects router
+from prospects import router as prospects_router
+app.include_router(prospects_router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -91,22 +95,88 @@ async def _search_google(query: str, max_results: int, serpapi_key: str,
     return list(dict.fromkeys(urls))[:max_results]
 
 
+def _ddg_html_search(query: str, max_results: int, skip_domains: list[str]) -> list[str]:
+    """
+    Scrape DuckDuckGo's plain-HTML endpoint directly.
+    Avoids the ddgs library entirely — it has an unfixable chunked-transfer
+    parser bug ("Separator is not found") that triggers on any large response.
+    """
+    import urllib.parse
+    from bs4 import BeautifulSoup
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+        # Tell DDG to send plain HTML (no JS redirect)
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    }
+
+    urls: list[str] = []
+    # DDG HTML paginates via a 'dc' (offset) param — each page has ~10 results
+    next_form: dict = {}
+
+    for page in range((max_results + 9) // 10):
+        try:
+            if page == 0:
+                resp = requests.post(
+                    "https://html.duckduckgo.com/html/",
+                    data={"q": query, "b": "", "kl": ""},
+                    headers=headers,
+                    timeout=15,
+                    allow_redirects=True,
+                )
+            else:
+                # Subsequent pages: repost with the hidden form fields DDG returns
+                resp = requests.post(
+                    "https://html.duckduckgo.com/html/",
+                    data=next_form,
+                    headers=headers,
+                    timeout=15,
+                    allow_redirects=True,
+                )
+
+            soup = BeautifulSoup(resp.text, "lxml")
+
+            # Extract result links
+            for a in soup.select("a.result__a"):
+                href = a.get("href", "")
+                # DDG wraps URLs in a redirect — extract the real URL
+                if "uddg=" in href:
+                    href = urllib.parse.unquote(
+                        href.split("uddg=")[-1].split("&")[0]
+                    )
+                if href.startswith("http") and not any(s in href for s in skip_domains):
+                    if href not in urls:
+                        urls.append(href)
+
+            if len(urls) >= max_results:
+                break
+
+            # Find the "next page" hidden form for pagination
+            nav_form = soup.select_one("form[action='/html/']")
+            if not nav_form:
+                break
+            next_form = {
+                inp.get("name"): inp.get("value", "")
+                for inp in nav_form.select("input[name]")
+            }
+            if not next_form.get("dc"):
+                break   # no next-page token → no more results
+
+            import time
+            time.sleep(1)   # be polite between pages
+
+        except Exception:
+            break
+
+    return urls[:max_results]
+
+
 async def _search_duckduckgo(query: str, max_results: int,
                               skip_domains: list[str]) -> list[str]:
-    try:
-        from ddgs import DDGS
-    except ImportError:
-        raise RuntimeError("ddgs not installed: pip install ddgs")
-
-    raw = await asyncio.to_thread(
-        lambda: list(DDGS().text(query, max_results=max_results))
-    )
-    urls = []
-    for r in raw:
-        url = r.get("href", "")
-        if url and not any(s in url for s in skip_domains):
-            urls.append(url)
-    return list(dict.fromkeys(urls))[:max_results]
+    return await asyncio.to_thread(_ddg_html_search, query, max_results, skip_domains)
 
 
 async def _search_bing(query: str, max_results: int,

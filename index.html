@@ -333,6 +333,9 @@ tr.scanning td { animation: rowpulse 1.5s infinite; }
   <button class="page-tab" data-page="scrape" onclick="switchPage('scrape')">
     <i class="ti ti-table-import"></i> Price Scraping
   </button>
+  <button class="page-tab" data-page="prospects" onclick="switchPage('prospects')">
+    <i class="ti ti-brand-google-maps"></i> Prospect Search :]
+  </button>
 </nav>
 
 <!-- ══════════════════════════════════════════════════════════
@@ -650,6 +653,156 @@ tr.scanning td { animation: rowpulse 1.5s infinite; }
 </div>
 </div><!-- /page-scrape -->
 
+<!-- ══════════════════════════════════════════════════════════
+     PAGE: PROSPECT SEARCH
+══════════════════════════════════════════════════════════ -->
+<div id="page-prospects" class="page">
+<div class="app">
+
+  <!-- ─── SIDEBAR ─── -->
+  <aside class="sidebar">
+
+    <div class="logo">
+      <div>
+        <h1><i class="ti ti-brand-google-maps icon"></i> Prospect Scout</h1>
+        <p>Find businesses &amp; their contacts</p>
+      </div>
+    </div>
+
+    <div id="pBanner" class="banner warn">
+      <i class="ti ti-wifi-off"></i> Connecting to backend…
+    </div>
+
+    <hr>
+
+    <!-- Search -->
+    <div>
+      <div class="section-label">Business niche</div>
+      <div class="field">
+        <label>Niche / type</label>
+        <input type="text" id="p_niche" placeholder="e.g. roofing contractors, gyms, dentists">
+      </div>
+      <div class="field">
+        <label>Location <span style="font-weight:400;text-transform:none;font-size:11px">(optional)</span></label>
+        <input type="text" id="p_location" placeholder="e.g. Montreal, QC">
+      </div>
+      <div class="field">
+        <label>Max results</label>
+        <input type="number" id="p_max" min="5" max="100" value="20" placeholder="20">
+      </div>
+    </div>
+
+    <hr>
+
+    <!-- Options -->
+    <div>
+      <div class="section-label">Enrichment</div>
+      <div style="display:flex;flex-direction:column;gap:4px;">
+        <label class="check-label"><input type="checkbox" id="p_linkedin" checked> Find LinkedIn page</label>
+        <label class="check-label"><input type="checkbox" id="p_email" checked> Extract email</label>
+      </div>
+    </div>
+
+    <hr>
+
+    <!-- Engine -->
+    <div>
+      <div class="section-label">Search engine</div>
+      <div class="field">
+        <select id="p_engine">
+          <option value="duckduckgo" selected>DuckDuckGo</option>
+          <option value="bing">Bing</option>
+          <option value="all">All Engines</option>
+        </select>
+      </div>
+    </div>
+
+    <hr>
+
+    <!-- Google Maps -->
+    <div>
+      <div class="section-label">Google Maps API key <span style="font-weight:400;text-transform:none">(optional)</span></div>
+      <input type="password" id="p_gmaps_key" placeholder="AIza…">
+      <div style="font-size:11px;color:var(--text3);margin-top:5px;line-height:1.5">
+        Enables Places search + map view. Requires Maps JavaScript API &amp; Places API enabled.
+      </div>
+    </div>
+
+    <hr>
+
+    <div style="font-size:12px;color:var(--text2);line-height:1.5" id="pHint">
+      Enter a niche and optional location, then click Find prospects.
+    </div>
+
+    <button class="run-btn" id="prospectBtn" onclick="runProspects()">
+      <i class="ti ti-player-play"></i> Find prospects
+    </button>
+
+  </aside>
+
+  <!-- ─── MAIN ─── -->
+  <main class="main">
+
+    <div class="metrics">
+      <div class="metric"><div class="val" id="pm-found">—</div><div class="lbl">Qualified (w/ LinkedIn)</div></div>
+      <div class="metric"><div class="val" id="pm-total">—</div><div class="lbl">Total scanned</div></div>
+      <div class="metric"><div class="val" id="pm-email">—</div><div class="lbl">Emails found</div></div>
+      <div class="metric"><div class="val" id="pm-time">—</div><div class="lbl">Time elapsed</div></div>
+    </div>
+
+    <div class="status-bar">
+      <div class="dot" id="pDot"></div>
+      <span id="pStatus">Enter a niche and click Find prospects to start.</span>
+    </div>
+
+    <div class="progress-wrap" id="pProgressWrap">
+      <div class="progress-header">
+        <span id="pProgressLabel">Searching…</span>
+        <span id="pProgressPct">0%</span>
+      </div>
+      <div class="progress-track"><div class="progress-fill" id="pProgressFill"></div></div>
+    </div>
+
+    <!-- Map — shown only when coordinates are available -->
+    <div id="pMapWrap" style="display:none;border-radius:var(--radius-lg);overflow:hidden;border:0.5px solid var(--border);height:320px;">
+      <div id="pMap" style="width:100%;height:100%;"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">
+          <i class="ti ti-table"></i> Prospects
+          <span id="pResultCount" style="font-weight:400;color:var(--text3);margin-left:4px;"></span>
+        </div>
+        <div class="card-actions">
+          <button class="btn-sm" onclick="pExport()"><i class="ti ti-download"></i> Export CSV</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Business name</th>
+              <th>Website</th>
+              <th>Phone</th>
+              <th>Email</th>
+              <th>Address</th>
+              <th>LinkedIn</th>
+            </tr>
+          </thead>
+          <tbody id="pResultsBody">
+            <tr><td colspan="7"><div class="empty-state"><i class="ti ti-building"></i><p>Enter a niche and location to find prospects.</p></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+</div>
+</div><!-- /page-prospects -->
+
+
 
 <script>
 const API = window.location.origin;
@@ -704,12 +857,12 @@ async function checkConnection() {
     const ok = r.ok;
     const okHtml = '<i class="ti ti-wifi"></i> Backend connected — ready';
     const errHtml = '<i class="ti ti-wifi-off"></i> Cannot reach backend — is the server running?';
-    document.getElementById('connectionBanner').className = ok ? 'banner ok' : 'banner err';
-    document.getElementById('connectionBanner').innerHTML = ok ? okHtml : errHtml;
-    document.getElementById('sBanner').className = ok ? 'banner ok' : 'banner err';
-    document.getElementById('sBanner').innerHTML = ok ? okHtml : errHtml;
+    ['connectionBanner','sBanner','pBanner'].forEach(id => {
+      document.getElementById(id).className = ok ? 'banner ok' : 'banner err';
+      document.getElementById(id).innerHTML = ok ? okHtml : errHtml;
+    });
   } catch {
-    ['connectionBanner','sBanner'].forEach(id => {
+    ['connectionBanner','sBanner','pBanner'].forEach(id => {
       document.getElementById(id).className = 'banner err';
       document.getElementById(id).innerHTML = '<i class="ti ti-wifi-off"></i> Cannot reach backend — is the server running?';
     });
@@ -1109,6 +1262,7 @@ async function runScrape() {
         products: selectedProducts,
         engine: document.getElementById('s_engine').value,
         serpapi_key: document.getElementById('s_apikey').value.trim() || null,
+        target_url: document.getElementById('scraper_url').value.trim() || null,
       }),
     });
     if (!resp.ok) throw new Error(await resp.text());
@@ -1185,6 +1339,280 @@ async function runScrape() {
     document.getElementById('scrapeBtn').disabled = false;
     document.getElementById('scrapeBtn').innerHTML = '<i class="ti ti-player-play"></i> Scrape prices';
   }
+}
+
+// ══════════════════════════════════
+//  PROSPECT SEARCH PAGE
+// ══════════════════════════════════
+
+let pResults = [];
+let pJobId = null;
+let pEventSource = null;
+let pTimer = null;
+let pStartTime = null;
+
+// Google Maps state
+let pMap = null;
+let pMarkers = [];
+let pInfoWindow = null;
+let pMapsLoaded = false;
+
+function setPStatus(state, text) {
+  document.getElementById('pDot').className = 'dot ' + (state || '');
+  document.getElementById('pStatus').textContent = text;
+}
+
+// ── Google Maps helpers ──
+
+function loadGoogleMaps(key) {
+  if (pMapsLoaded || document.getElementById('gmaps-script')) return;
+  const s = document.createElement('script');
+  s.id = 'gmaps-script';
+  s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&callback=initPMap`;
+  s.async = true;
+  document.head.appendChild(s);
+}
+
+window.initPMap = function () {
+  pMapsLoaded = true;
+  pMap = new google.maps.Map(document.getElementById('pMap'), {
+    zoom: 11,
+    center: { lat: 45.5017, lng: -73.5673 },  // default: Montreal; recenters on first pin
+    mapTypeControl: false,
+    streetViewControl: false,
+    fullscreenControl: false,
+  });
+  pInfoWindow = new google.maps.InfoWindow();
+  // Drop any queued markers
+  pResults.forEach((r, i) => { if (r.lat && r.lng) _addMarker(r, i); });
+};
+
+function _addMarker(r, idx) {
+  if (!pMap) return;
+  const pos = { lat: r.lat, lng: r.lng };
+  const marker = new google.maps.Marker({
+    position: pos,
+    map: pMap,
+    title: r.name,
+    label: { text: String(idx + 1), color: '#fff', fontSize: '11px', fontWeight: '700' },
+    icon: {
+      path: google.maps.SymbolPath.CIRCLE,
+      scale: 14,
+      fillColor: r.qualified ? '#1D9E75' : '#6b6b67',
+      fillOpacity: 1,
+      strokeColor: '#fff',
+      strokeWeight: 2,
+    },
+  });
+  marker.addListener('click', () => {
+    const liHtml = r.linkedin
+      ? `<a href="${r.linkedin}" target="_blank" style="color:#0a66c2">LinkedIn ↗</a>`
+      : '';
+    const webHtml = r.website
+      ? `<a href="${r.website}" target="_blank" style="color:#185FA5">${r.domain || r.website} ↗</a>`
+      : '';
+    pInfoWindow.setContent(`
+      <div style="font-family:-apple-system,sans-serif;font-size:13px;max-width:220px;line-height:1.5">
+        <strong>${r.name}</strong><br>
+        ${r.address ? `<span style="color:#666;font-size:12px">${r.address}</span><br>` : ''}
+        ${r.phone ? `📞 ${r.phone}<br>` : ''}
+        ${r.email ? `✉ ${r.email}<br>` : ''}
+        ${webHtml ? webHtml + '<br>' : ''}
+        ${liHtml}
+      </div>`);
+    pInfoWindow.open(pMap, marker);
+  });
+  pMarkers.push(marker);
+
+  // Recenter map to fit all markers
+  const bounds = new google.maps.LatLngBounds();
+  pMarkers.forEach(m => bounds.extend(m.getPosition()));
+  pMap.fitBounds(bounds);
+  if (pMarkers.length === 1) pMap.setZoom(13);
+}
+
+function _tryAddMarker(r, idx) {
+  if (!r.lat || !r.lng) return;
+  document.getElementById('pMapWrap').style.display = 'block';
+  if (pMapsLoaded) {
+    _addMarker(r, idx);
+  }
+  // else initPMap() will flush pResults once the script loads
+}
+
+function _clearMarkers() {
+  pMarkers.forEach(m => m.setMap(null));
+  pMarkers = [];
+  if (pInfoWindow) pInfoWindow.close();
+}
+
+// ── Render table ──
+
+function renderProspects() {
+  const body = document.getElementById('pResultsBody');
+  document.getElementById('pResultCount').textContent = pResults.length ? `(${pResults.length})` : '';
+  if (!pResults.length) {
+    body.innerHTML = '<tr><td colspan="7"><div class="empty-state"><i class="ti ti-building"></i><p>No prospects found yet.</p></div></td></tr>';
+    return;
+  }
+  body.innerHTML = pResults.map((r, i) => {
+    const domainDisplay = r.domain || (r.website ? (() => { try { return new URL(r.website).hostname.replace('www.', ''); } catch { return r.website; } })() : '—');
+    const websiteHtml = r.website
+      ? `<a href="${r.website}" target="_blank" rel="noopener">${domainDisplay} <i class="ti ti-external-link" style="font-size:11px"></i></a>`
+      : '<span style="color:var(--text3)">—</span>';
+    const linkedinHtml = r.linkedin
+      ? `<a href="${r.linkedin}" target="_blank" rel="noopener"><i class="ti ti-brand-linkedin" style="color:#0a66c2"></i> View <i class="ti ti-external-link" style="font-size:11px"></i></a>`
+      : '<span style="color:var(--text3)">—</span>';
+    const emailHtml = r.email
+      ? `<a href="mailto:${r.email}">${r.email}</a>`
+      : '<span style="color:var(--text3)">—</span>';
+    const qualDot = r.qualified
+      ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--green);margin-right:5px;vertical-align:middle"></span>`
+      : '';
+    return `<tr>
+      <td style="color:var(--text3);font-size:12px">${i + 1}</td>
+      <td style="font-weight:500;max-width:180px;overflow:hidden;text-overflow:ellipsis" title="${r.name}">${qualDot}${r.name || '—'}</td>
+      <td>${websiteHtml}</td>
+      <td style="white-space:nowrap">${r.phone || '<span style="color:var(--text3)">—</span>'}</td>
+      <td>${emailHtml}</td>
+      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;color:var(--text2);font-size:12px" title="${r.address || ''}">${r.address || '<span style="color:var(--text3)">—</span>'}</td>
+      <td>${linkedinHtml}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Run ──
+
+async function runProspects() {
+  const niche = document.getElementById('p_niche').value.trim();
+  if (!niche) { alert('Please enter a business niche.'); return; }
+
+  const gmapsKey = document.getElementById('p_gmaps_key').value.trim();
+
+  pResults = [];
+  _clearMarkers();
+  document.getElementById('pMapWrap').style.display = 'none';
+  if (pEventSource) { pEventSource.close(); pEventSource = null; }
+  clearInterval(pTimer);
+
+  document.getElementById('prospectBtn').disabled = true;
+  document.getElementById('prospectBtn').innerHTML = '<i class="ti ti-loader"></i> Searching…';
+  document.getElementById('pProgressWrap').style.display = 'block';
+  document.getElementById('pProgressFill').style.width = '0%';
+  document.getElementById('pProgressPct').textContent = '0%';
+  document.getElementById('pProgressLabel').textContent = 'Searching…';
+  document.getElementById('pm-found').textContent = '0';
+  document.getElementById('pm-total').textContent = '0';
+  document.getElementById('pm-email').textContent = '0';
+  document.getElementById('pm-time').textContent = '—';
+
+  // Pre-load Maps JS so it's ready when pins start arriving
+  if (gmapsKey) loadGoogleMaps(gmapsKey);
+
+  pStartTime = Date.now();
+  pTimer = setInterval(() => {
+    document.getElementById('pm-time').textContent = ((Date.now() - pStartTime) / 1000).toFixed(1) + 's';
+  }, 200);
+
+  setPStatus('running', 'Starting prospect search…');
+  renderProspects();
+
+  try {
+    const resp = await fetch(API + '/api/prospects/jobs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        niche,
+        location: document.getElementById('p_location').value.trim(),
+        engine: document.getElementById('p_engine').value,
+        max_results: parseInt(document.getElementById('p_max').value) || 20,
+        find_linkedin: document.getElementById('p_linkedin').checked,
+        find_email: document.getElementById('p_email').checked,
+        gmaps_key: gmapsKey || null,
+      }),
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    const { job_id } = await resp.json();
+    pJobId = job_id;
+
+    pEventSource = new EventSource(API + `/api/prospects/jobs/${job_id}/stream`);
+    let qualifiedCount = 0, emailCount = 0;
+
+    pEventSource.onmessage = e => {
+      const msg = JSON.parse(e.data);
+
+      if (msg.type === 'stream_end') { pEventSource.close(); return; }
+      if (msg.type === 'status') setPStatus('running', msg.msg);
+
+      if (msg.type === 'progress') {
+        const pct = Math.round(((msg.current + 1) / msg.total) * 100);
+        document.getElementById('pProgressFill').style.width = pct + '%';
+        document.getElementById('pProgressPct').textContent = pct + '%';
+        setPStatus('running', msg.msg);
+      }
+
+      if (msg.type === 'result') {
+        const r = msg.data;
+        const idx = pResults.length;
+        pResults.push(r);
+
+        // "Counts as 1" only if LinkedIn found
+        if (r.qualified) qualifiedCount++;
+        if (r.email) emailCount++;
+
+        document.getElementById('pm-found').textContent = qualifiedCount;
+        document.getElementById('pm-total').textContent = pResults.length;
+        document.getElementById('pm-email').textContent = emailCount;
+
+        _tryAddMarker(r, idx);
+        renderProspects();
+      }
+
+      if (msg.type === 'done') {
+        document.getElementById('pProgressFill').style.width = '100%';
+        document.getElementById('pProgressPct').textContent = '100%';
+        document.getElementById('pProgressLabel').textContent = 'Complete';
+        setPStatus('done', `Done — ${qualifiedCount} qualified leads (${pResults.length} scanned) in ${msg.elapsed}s`);
+        clearInterval(pTimer);
+        document.getElementById('pm-time').textContent = msg.elapsed + 's';
+        document.getElementById('prospectBtn').disabled = false;
+        document.getElementById('prospectBtn').innerHTML = '<i class="ti ti-refresh"></i> Search again';
+        pEventSource.close();
+      }
+
+      if (msg.type === 'error') {
+        setPStatus('error', 'Error: ' + msg.msg);
+        clearInterval(pTimer);
+        pEventSource.close();
+        document.getElementById('prospectBtn').disabled = false;
+        document.getElementById('prospectBtn').innerHTML = '<i class="ti ti-player-play"></i> Find prospects';
+      }
+    };
+
+    pEventSource.onerror = () => {
+      setPStatus('error', 'Stream lost. Check server.');
+      clearInterval(pTimer);
+      pEventSource.close();
+      document.getElementById('prospectBtn').disabled = false;
+      document.getElementById('prospectBtn').innerHTML = '<i class="ti ti-player-play"></i> Find prospects';
+    };
+
+  } catch (err) {
+    setPStatus('error', 'Error: ' + err.message);
+    clearInterval(pTimer);
+    document.getElementById('prospectBtn').disabled = false;
+    document.getElementById('prospectBtn').innerHTML = '<i class="ti ti-player-play"></i> Find prospects';
+  }
+}
+
+function pExport() {
+  if (!pResults.length) { alert('No prospects to export.'); return; }
+  const keys = ['name', 'domain', 'website', 'phone', 'email', 'address', 'linkedin'];
+  const csv = [
+    keys.join(','),
+    ...pResults.map(r => keys.map(k => `"${String(r[k] ?? '').replace(/"/g, '""')}"`).join(','))
+  ].join('\n');
+  download(csv, 'prospects.csv', 'text/csv');
 }
 
 // ── Export scrape results ──

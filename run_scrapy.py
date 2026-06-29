@@ -1,9 +1,11 @@
 """
 Subprocess runner: reads config JSON, runs Scrapy, prints JSONL to stdout.
 """
+
 import sys
 import json
 import os
+
 
 # Windows: Scrapy needs SelectorEventLoop, not the default ProactorEventLoop
 if sys.platform == "win32":

@@ -1,0 +1,12 @@
+To Do:
+
+- Fix the Benchmarking Scraper
+- Work on the currency exchange of all the products found in the scrapper section
+- Base all the searches on the SKU (the serial numbers given in the excel sheet)
+
+Prospect finder:
+- Search initially on google (using the scrapper + on google maps searching for local business with a specific filter)
+- Output all fo the results in an excel sheet:
+	- find their numbers + emails
+	- search on linked in for the CEO's information
+

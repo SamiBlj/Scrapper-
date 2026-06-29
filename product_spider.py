@@ -1,5 +1,6 @@
 import scrapy
 import re
+import html
 
 
 class ProductSpider(scrapy.Spider):
@@ -26,6 +27,7 @@ class ProductSpider(scrapy.Spider):
 
     def parse(self, response):
         page_text = response.text.lower()
+
 
         # Check skip domains
         domain = response.url.split("/")[2] if "//" in response.url else response.url
@@ -64,6 +66,11 @@ class ProductSpider(scrapy.Spider):
             "site": domain,
             "name": self._extract_name(response),
         }
+
+        number_contexts = self._extract_number_contexts(response)
+        if number_contexts:
+            item["number_contexts"] = number_contexts
+            item["html_data"] = self._build_html_data(number_contexts)
 
         if "price" in self.extract_fields:
             item["price"] = self._extract_price(response)
@@ -142,6 +149,7 @@ class ProductSpider(scrapy.Spider):
                 return val.strip()
         return "N/A"
 
+
     def _extract_availability(self, response):
         val = response.css('[itemprop="availability"]::attr(content)').get()
         if val:
@@ -151,6 +159,7 @@ class ProductSpider(scrapy.Spider):
             if val and val.strip():
                 return val.strip()
         return "N/A"
+
 
     def _extract_description(self, response):
         for sel in [
@@ -162,3 +171,32 @@ class ProductSpider(scrapy.Spider):
             if val and val.strip():
                 return val.strip()[:300]
         return "N/A"
+
+
+    def _extract_number_contexts(self, response, radius=60):
+        html_text = response.text
+        contexts = []
+        for match in re.finditer(r'[\d][\d\.,]*', html_text):
+            start = max(0, match.start() - radius)
+            end = min(len(html_text), match.end() + radius)
+            raw_context = html_text[start:end].replace("\n", " ")
+            text_context = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", raw_context)).strip()
+            contexts.append({
+                "number": match.group(),
+                "html_context": raw_context.strip(),
+                "text_context": text_context,
+            })
+        return contexts
+
+
+    def _build_html_data(self, contexts):
+        rows = []
+        for ctx in contexts:
+            escaped_html = html.escape(ctx["html_context"])
+            rows.append(
+                '<div class="number-context">'
+                f'<span class="number">{ctx["number"]}</span>'
+                f'<span class="context">{escaped_html}</span>'
+                '</div>'
+            )
+        return '<section>' + ''.join(rows) + '</section>'
