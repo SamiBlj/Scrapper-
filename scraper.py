@@ -275,71 +275,6 @@ def _normalize_domain(url: str) -> str:
         return ""
 
 
-def _ddg_html_search(query: str, max_results: int) -> list[dict]:
-    """
-    Scrape DDG's plain-HTML endpoint directly — avoids the ddgs library's
-    unfixable 'Separator is not found' chunked-transfer parser bug.
-    Returns list of {url, title, snippet} dicts.
-    """
-    import urllib.parse
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                      "AppleWebKit/537.36 (KHTML, like Gecko) "
-                      "Chrome/120.0.0.0 Safari/537.36",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    }
-    results: list[dict] = []
-    next_form: dict = {}
-
-    for page in range((max_results + 9) // 10):
-        try:
-            import time
-            if page == 0:
-                resp = requests.post(
-                    "https://html.duckduckgo.com/html/",
-                    data={"q": query, "b": "", "kl": ""},
-                    headers=headers, timeout=15, allow_redirects=True,
-                )
-            else:
-                resp = requests.post(
-                    "https://html.duckduckgo.com/html/",
-                    data=next_form,
-                    headers=headers, timeout=15, allow_redirects=True,
-                )
-            soup = BeautifulSoup(resp.text, "lxml")
-            for result in soup.select(".result"):
-                a = result.select_one("a.result__a")
-                snip = result.select_one(".result__snippet")
-                if not a:
-                    continue
-                href = a.get("href", "")
-                if "uddg=" in href:
-                    href = urllib.parse.unquote(href.split("uddg=")[-1].split("&")[0])
-                if href.startswith("http"):
-                    results.append({
-                        "url": href,
-                        "title": a.get_text(strip=True),
-                        "snippet": snip.get_text(strip=True) if snip else "",
-                    })
-            if len(results) >= max_results:
-                break
-            nav_form = soup.select_one("form[action='/html/']")
-            if not nav_form:
-                break
-            next_form = {
-                inp.get("name"): inp.get("value", "")
-                for inp in nav_form.select("input[name]")
-            }
-            if not next_form.get("dc"):
-                break
-            time.sleep(1)
-        except Exception:
-            break
-
-    return results[:max_results]
-
-
 async def _search_site_for_product(query: str, domain: str, engine: str,
                                    max_results: int = 6) -> list:
     """Search exclusively within a specific domain using site: operator."""
@@ -347,13 +282,20 @@ async def _search_site_for_product(query: str, domain: str, engine: str,
     results = []
 
     if engine in ("duckduckgo", "all"):
-        try:
-            raw = await asyncio.to_thread(_ddg_html_search, site_query, max_results)
-            for r in raw:
-                if domain in r["url"]:
-                    results.append({"url": r["url"], "snippet": r["snippet"], "title": r["title"]})
-        except Exception:
-            pass
+        from ddgs import DDGS
+        def _ddg_site():
+            out = []
+            try:
+                for r in DDGS().text(site_query, max_results=max_results):
+                    href = r.get("href", "")
+                    if href.startswith("http") and domain in href:
+                        out.append({"url": href,
+                                    "snippet": r.get("body", "") + " " + r.get("title", ""),
+                                    "title": r.get("title", "")})
+            except Exception:
+                pass
+            return out
+        results = await asyncio.to_thread(_ddg_site)
 
     if not results:
         try:
@@ -387,10 +329,20 @@ async def _search_urls(query: str, engine: str, max_results: int = 6) -> list:
     results = []
 
     if engine in ("duckduckgo", "all"):
-        try:
-            results = await asyncio.to_thread(_ddg_html_search, query, max_results)
-        except Exception:
-            pass
+        from ddgs import DDGS
+        def _ddg_web():
+            out = []
+            try:
+                for r in DDGS().text(query, max_results=max_results):
+                    href = r.get("href", "")
+                    if href.startswith("http"):
+                        out.append({"url": href,
+                                    "snippet": r.get("body", "") + " " + r.get("title", ""),
+                                    "title": r.get("title", "")})
+            except Exception:
+                pass
+            return out
+        results = await asyncio.to_thread(_ddg_web)
 
     if not results and engine in ("bing", "all"):
         try:

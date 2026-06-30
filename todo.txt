@@ -1,12 +1,13 @@
 To Do:
 
-- Fix the Benchmarking Scraper
-- Work on the currency exchange of all the products found in the scrapper section
-- Base all the searches on the SKU (the serial numbers given in the excel sheet)
+- Fix the Benchmarking Scraper (Error: " Separator is not found, and chunk exceed the limit") --> Working on it
+- Work on the currency exchange of all the products found in the scrapper section --> TBD
+- Base all the searches on the SKU (the serial numbers given in the excel sheet) --> URGENT (Work on Next)
 
 Prospect finder:
 - Search initially on google (using the scrapper + on google maps searching for local business with a specific filter)
 - Output all fo the results in an excel sheet:
 	- find their numbers + emails
 	- search on linked in for the CEO's information
+
 
