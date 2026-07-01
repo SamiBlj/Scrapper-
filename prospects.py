@@ -51,7 +51,7 @@ class ProspectConfig(BaseModel):
     niche: str
     location: str = ""
     engine: str = "duckduckgo"
-    max_results: int = 20
+    max_results: int
     find_linkedin: bool = True
     find_email: bool = True
     serpapi_key: Optional[str] = None
@@ -221,151 +221,130 @@ def _li_name_from_url(url: str) -> str:
         return url
 
 
+# ── DDG search helper ─────────────────────────────────────────────────────────
+
+def _ddg_search(query: str, max_results: int) -> list[dict]:
+    """Run a DDG text search and return raw result dicts. Never raises."""
+    out = []
+    try:
+        from ddgs import DDGS
+        for r in DDGS().text(query, max_results=max_results):
+            out.append(r)
+    except Exception:
+        pass
+    return out
+
+
 # ── STEP 1: LinkedIn company search ──────────────────────────────────────────
 
 async def _search_linkedin_companies(niche: str, location: str, engine: str,
                                      max_results: int) -> list:
-    """Search for LinkedIn company pages matching niche + location."""
-    # Quoted niche = exact match (fewer results). Unquoted = broader index hits.
-    # We run both and merge.
-    query_broad  = f'site:linkedin.com/company {niche} {location}'
-    query_exact  = f'site:linkedin.com/company "{niche}" {location}'
-    query = query_broad  # used by _ddg_collect / _bing_collect below
+    """Search for LinkedIn company pages matching niche + location via DDG."""
 
-    def _ddg_collect():
+    def _collect(query: str) -> list:
         out = []
-        try:
-            from ddgs import DDGS
-            for r in DDGS().text(query, max_results=max_results * 50):
-                href = r.get("href", "")
-                if href.startswith("http") and "linkedin.com/company" in href:
-                    clean = _li_clean_url(href)
-                    title = (r.get("title", "")
-                               .replace(" | LinkedIn", "")
-                               .replace(" - LinkedIn", "")
-                               .strip()) or _li_name_from_url(clean)
-                    out.append({"linkedin_url": clean, "title": title,
-                                "snippet": r.get("body", "")})
-        except Exception:
-            pass
+        n = 0
+        for r in _ddg_search(query, max_results * 2):
+            href = r.get("href", "")
+            if href.startswith("http") and "linkedin.com/company" in href:
+                clean = _li_clean_url(href)
+                title = (r.get("title", "")
+                           .replace(" | LinkedIn", "")
+                           .replace(" - LinkedIn", "")
+                           .strip()) or _li_name_from_url(clean)
+                out.append({"linkedin_url": clean, "title": title,
+                            "snippet": r.get("body", "")})
+                print("LINKEDIN SEARCH CHECKPOINT ",n)
+                n +=1 
+        print("LINKEDIN SEARCH FINAL CHECKPOINT")
         return out
 
-    def _bing_collect():
-        # Bing HTML only returns 10 results per request regardless of count=.
-        # We paginate with first= to collect up to max_results pages.
-        out = []
-        pages_needed = max(1, -(-max_results // 10))  # ceil division
-        for page in range(pages_needed):
-            try:
-                resp = requests.get(
-                    "https://www.bing.com/search",
-                    params={"q": query, "count": 10, "first": page * 10 + 1},
-                    headers=HEADERS, timeout=15,
-                )
-                soup = BeautifulSoup(resp.text, "lxml")
-                found_on_page = 0
-                for li in soup.select("li.b_algo"):
-                    a = li.select_one("h2 a")
-                    cap = li.select_one(".b_caption p")
-                    if not a:
-                        continue
-                    href = a.get("href", "")
-                    if "linkedin.com/company" not in href:
-                        continue
-                    clean = _li_clean_url(href)
-                    title = (a.get_text(strip=True)
-                               .replace(" | LinkedIn", "")
-                               .replace(" - LinkedIn", "")
-                               .strip()) or _li_name_from_url(clean)
-                    out.append({"linkedin_url": clean, "title": title,
-                                "snippet": cap.get_text(strip=True) if cap else ""})
-                    found_on_page += 1
-                # If Bing returned no linkedin results on this page, stop paginating
-                if found_on_page == 0:
-                    break
-                import time
-                time.sleep(0.8)
-            except Exception:
-                break
-        return out
 
-    results: list = []
-    if engine in ("duckduckgo", "all"):
-        results = await asyncio.to_thread(_ddg_collect)
-        # Second DDG pass with exact-match query to catch additional hits
-        if len(results) < max_results:
-            query = query_exact
-            extra = await asyncio.to_thread(_ddg_collect)
-            seen = {r["linkedin_url"] for r in results}
-            results += [r for r in extra if r["linkedin_url"] not in seen]
-            query = query_broad  # restore for Bing
 
-    # Bing always runs — it paginates and is the most reliable source of volume
-    bing = await asyncio.to_thread(_bing_collect)
-    seen = {r["linkedin_url"] for r in results}
-    results += [r for r in bing if r["linkedin_url"] not in seen]
+    # Broad pass first, then exact-match pass to maximise coverage
+    broad  = await asyncio.to_thread(_collect, f'site:linkedin.com/company {niche} {location}')
+    seen   = {r["linkedin_url"] for r in broad}
+    exact  = await asyncio.to_thread(_collect, f'site:linkedin.com/company "{niche}" {location}')
+    results = broad + [r for r in exact if r["linkedin_url"] not in seen]
 
-    # Exact Bing pass if still short
-    if len(results) < max_results:
-        query = query_exact
-        bing_exact = await asyncio.to_thread(_bing_collect)
-        seen = {r["linkedin_url"] for r in results}
-        results += [r for r in bing_exact if r["linkedin_url"] not in seen]
-
+    # Deduplicate
     seen_urls: set = set()
     deduped = []
     for r in results:
         if r["linkedin_url"] not in seen_urls:
             seen_urls.add(r["linkedin_url"])
             deduped.append(r)
-
     return deduped[:max_results]
 
 
 # ── STEP 2 helper: find website when no Maps key ──────────────────────────────
 
 async def _find_website_web(company_name: str, location: str, engine: str) -> dict:
-    """Web-search a company to find its official website (no Maps API key path)."""
-    query = f'"{company_name}" {location} official website'
+    """Web-search a company to find its official website."""
     base: dict = {"website": "", "url": "", "address": "", "phone": "",
                   "lat": None, "lng": None, "rating": None}
 
-    def _ddg_collect():
-        try:
-            from ddgs import DDGS
-            for r in DDGS().text(query, max_results=5):
-                href = r.get("href", "")
-                if href.startswith("http") and not _is_noise(href):
-                    return href
-        except Exception:
-            pass
+    def _collect():
+        for r in _ddg_search(f'"{company_name}" {location} official website', 5):
+            href = r.get("href", "")
+            if href.startswith("http") and not _is_noise(href):
+                return href
         return ""
 
-    def _bing_collect():
-        try:
-            resp = requests.get(
-                "https://www.bing.com/search",
-                params={"q": query, "count": 5},
-                headers=HEADERS, timeout=50,
-            )
-            soup = BeautifulSoup(resp.text, "lxml")
-            for a in soup.select("li.b_algo h2 a"):
-                href = a.get("href", "")
-                if href.startswith("http") and not _is_noise(href):
-                    return href
-        except Exception:
-            pass
-        return ""
-
-    website = ""
-    if engine in ("duckduckgo", "all"):
-        website = await asyncio.to_thread(_ddg_collect)
-    if not website:
-        website = await asyncio.to_thread(_bing_collect)
+    website = await asyncio.to_thread(_collect)
     if website:
         base["website"] = website
         base["url"] = website
     return base
+
+
+# ── General web search (fallback when LinkedIn index is thin) ─────────────────
+
+async def _search_businesses_web(niche: str, location: str, engine: str,
+                                 max_results: int) -> list:
+    """General business web search via DDG — used when LinkedIn index is sparse."""
+
+    def _collect():
+        out = []
+        for r in _ddg_search(f"{niche} {location} company", max_results * 2):
+            href = r.get("href", "")
+            if href.startswith("http") and not _is_noise(href):
+                out.append({
+                    "linkedin_url": "",
+                    "title": r.get("title", ""),
+                    "snippet": r.get("body", ""),
+                    "website": href, "url": href,
+                    "phone": "", "address": "",
+                    "lat": None, "lng": None, "rating": None,
+                })
+        return out
+
+    results = await asyncio.to_thread(_collect)
+
+    # Deduplicate by domain
+    seen_domains: set = set()
+    deduped = []
+    for r in results:
+        d = _extract_domain(r["url"])
+        if d and d not in seen_domains:
+            seen_domains.add(d)
+            deduped.append(r)
+    return deduped[:max_results]
+
+
+async def _find_linkedin_for(company_name: str, location: str, engine: str) -> str:
+    """Find a LinkedIn company URL for a specific business name via DDG."""
+
+    def _collect():
+        for r in _ddg_search(f'site:linkedin.com/company "{company_name}" {location}', 3):
+            href = r.get("href", "")
+            if href.startswith("http") and "linkedin.com/company" in href:
+                return _li_clean_url(href)
+        return ""
+
+    return await asyncio.to_thread(_collect)
+
+
 
 
 # ── Job runner ────────────────────────────────────────────────────────────────
@@ -376,33 +355,65 @@ async def _run_prospect_job(job: ProspectJob):
 
     Pipeline:
       1. Search LinkedIn for companies matching niche + location.
+         If LinkedIn index is thin, fall back to general web search + per-company LinkedIn lookup.
       2. Cross-check each on Google Maps (Places API or web) for address/lat/lng/phone/website.
       3. Scrape each business website for full contact details (email, phone, address).
     """
+    print("_"*20)
+    print("Initializing Search for prospects")
+    print("_"*20)
     job.status = "running"
     cfg = job.config
 
     # ── STEP 1: LinkedIn ──────────────────────────────────────────────────────
+    print("STARTING SEARCH ON LINKEDIN")
     job.push({"type": "status",
               "msg": f'Step 1/3 — Searching LinkedIn for "{cfg.niche} {cfg.location}"…'})
 
     linkedin_hits = await _search_linkedin_companies(
         cfg.niche, cfg.location, cfg.engine, cfg.max_results
     )
+    print("POST LINKEDIN SEARCH CHECKPOINT")
+    # LinkedIn index is often thin — fall back to general web search if needed
+    used_fallback = False
+    if len(linkedin_hits) < max(3, cfg.max_results // 4):
+        print("ISSUE WITH LACK OF HITS --> RESEARCHING ON LINKEDIN AGAIN FOR MORE RESULTS")
+        job.push({"type": "status",
+                  "msg": f"LinkedIn index thin ({len(linkedin_hits)} found) — "
+                         f"expanding with web search…"})
+        web_hits = await _search_businesses_web(
+            cfg.niche, cfg.location, cfg.engine, cfg.max_results
+        )
+        # Merge: linkedin_hits win (they already have the URL), web fills the rest
+        existing_titles = {h["title"].lower() for h in linkedin_hits}
+        for w in web_hits:
+            if w["title"].lower() not in existing_titles:
+                linkedin_hits.append(w)
+                existing_titles.add(w["title"].lower())
+        used_fallback = True
 
     if not linkedin_hits:
+        print("!"*20)
+        print("ERROR, NO HITS WERE FOUND ON LINKED IN")
+        print("!"*20)
         job.push({"type": "error",
-                  "msg": "No LinkedIn results found. Try a different niche or location."})
+                  "msg": "No results found. Try a different niche or location."})
         job.status = "error"
         job.done = True
         return
 
+    linkedin_hits = linkedin_hits #[:cfg.max_results]
     job.push({"type": "status",
-              "msg": f"Found {len(linkedin_hits)} on LinkedIn — Step 2/3: Google Maps…"})
+              "msg": f"Found {len(linkedin_hits)} candidates — Step 2/3: Google Maps…"})
 
     # ── STEP 2: Google Maps enrichment ────────────────────────────────────────
     candidates: list = []
+    print("INITIALIZING CANDIDATE LISTING")
+    i = 0
+    o = 0
     for li in linkedin_hits:
+        print("CANDIDATE LISTING FOR BUSINESS: ", o)
+        o += 1
         base: dict = {
             "title":       li["title"],
             "linkedin_url": li["linkedin_url"],
@@ -413,6 +424,8 @@ async def _run_prospect_job(job: ProspectJob):
 
         if cfg.gmaps_key:
             try:
+                print("START OF GOOGLE MAPS SEARCH SUCCESSFUL FOR BUSINESS: ", i)
+                i += 1
                 places = await _search_google_places(
                     f"{li['title']} {cfg.location}", cfg.location, 2, cfg.gmaps_key
                 )
@@ -428,6 +441,8 @@ async def _run_prospect_job(job: ProspectJob):
                         "rating":  p.get("rating"),
                     })
             except Exception:
+                print("GOOGLE MAPS SEARCH FAILED FOR BUSINESS: ", i)
+                i += 1
                 pass
         else:
             web = await _find_website_web(li["title"], cfg.location, cfg.engine)
@@ -441,7 +456,7 @@ async def _run_prospect_job(job: ProspectJob):
 
     # ── STEP 3: Website scraping ──────────────────────────────────────────────
     qualified = 0  # all results sourced from LinkedIn → all qualify
-
+    print("At this point Fuck it, ENUMARATOR THE FIRST!!!!")
     for i, c in enumerate(candidates):
         job.push({
             "type": "progress",
@@ -463,7 +478,14 @@ async def _run_prospect_job(job: ProspectJob):
         if cfg.find_email and not email:
             email = _extract_email(c.get("snippet", "")) or ""
 
-        qualified += 1
+        # For web-fallback candidates, look up LinkedIn now
+        print("THEE SHALL NOT FUCKING PASS, FOR THIS IS THE WEB-FALLBACK FOR ALL CANDIDATES YAH CUNTs")
+        linkedin_url = c.get("linkedin_url", "")
+        if not linkedin_url and cfg.find_linkedin:
+            linkedin_url = await _find_linkedin_for(c["title"], cfg.location, cfg.engine)
+
+        if linkedin_url:
+            qualified += 1
 
         result = {
             "name":      c["title"],
@@ -472,11 +494,11 @@ async def _run_prospect_job(job: ProspectJob):
             "phone":     phone,
             "email":     email,
             "address":   address,
-            "linkedin":  c["linkedin_url"],
+            "linkedin":  linkedin_url,
             "lat":       c.get("lat"),
             "lng":       c.get("lng"),
             "rating":    c.get("rating"),
-            "qualified": True,
+            "qualified": bool(linkedin_url),
         }
         job.results.append(result)
         job.push({"type": "result", "data": result, "index": i, "qualified": qualified})
@@ -490,6 +512,7 @@ async def _run_prospect_job(job: ProspectJob):
         "elapsed": job.elapsed(),
     })
     job.done = True
+    print("IT'S THE FINAL COUNT DOOWWWWNNNN. Job done :D")
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────

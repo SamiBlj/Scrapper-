@@ -47,6 +47,100 @@ _NON_PRICE_CONTEXT = re.compile(
 )
 
 
+# ── Currency conversion ───────────────────────────────────────────────────────
+#
+# HOW IT WORKS
+# ────────────
+# All rates below are stored as "1 unit of CURRENCY = N MAD".
+# To convert between any two currencies we pivot through MAD:
+#
+#   rate(A → B) = MAD_RATES[A] / MAD_RATES[B]
+#
+# Example: 100 USD → MAD  →  100 × (10.05 / 1.0)  = 1005 MAD
+# Example: 100 USD → EUR  →  100 × (10.05 / 11.20) = ~89.7 EUR
+#
+# TO UPDATE RATES: Go to https://www.bkam.ma (Bank Al-Maghrib) or
+# https://www.xe.com and look up the mid-rate for each currency vs MAD.
+# Update the numbers below — no code changes needed anywhere else.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 1 unit of each currency expressed in MAD  (update periodically)
+MAD_RATES: dict[str, float] = {
+    "MAD": 1.0,
+    "USD": 10.05,
+    "EUR": 11.20,
+    "GBP": 13.10,
+    "CHF": 11.60,
+    "CAD": 7.35,
+    "AUD": 6.55,
+    "JPY": 0.069,   # 1 JPY = 0.069 MAD  (i.e. 100 JPY ≈ 6.9 MAD)
+    "CNY": 1.39,
+    "SAR": 2.68,
+    "AED": 2.74,
+    "KWD": 32.70,
+    "QAR": 2.76,
+    "BHD": 26.65,
+    "OMR": 26.10,
+    "DZD": 0.075,
+    "TND": 3.25,
+    "TRY": 0.29,
+    "INR": 0.12,
+    "KRW": 0.0073,
+}
+
+_SYMBOL_TO_CODE = {
+    '$': 'USD', '€': 'EUR', '£': 'GBP', '¥': 'JPY',
+    '₹': 'INR', '₩': 'KRW',
+}
+_TEXT_TO_CODE = {
+    'USD': 'USD', 'EUR': 'EUR', 'GBP': 'GBP', 'JPY': 'JPY',
+    'MAD': 'MAD', 'DH': 'MAD', 'DHS': 'MAD',
+    'DZD': 'DZD', 'DA': 'DZD',
+    'TND': 'TND',
+    'SAR': 'SAR', 'AED': 'AED', 'QAR': 'QAR', 'KWD': 'KWD',
+    'CNY': 'CNY', 'CAD': 'CAD', 'AUD': 'AUD', 'CHF': 'CHF',
+    'TRY': 'TRY', 'INR': 'INR', 'KRW': 'KRW',
+}
+
+
+def _detect_currency(price_str: str) -> str:
+    """Detect the currency code from a raw price string."""
+    for sym, code in _SYMBOL_TO_CODE.items():
+        if sym in price_str:
+            return code
+    upper = price_str.upper()
+    for text, code in _TEXT_TO_CODE.items():
+        if text in upper:
+            return code
+    return 'USD'  # default — most international e-commerce prices are in USD
+
+
+def _get_rate(from_curr: str, to_curr: str) -> float:
+    """Convert between any two currencies by pivoting through MAD."""
+    f = from_curr.upper()
+    t = to_curr.upper()
+    if f == t:
+        return 1.0
+    from_in_mad = MAD_RATES.get(f)
+    to_in_mad   = MAD_RATES.get(t)
+    if from_in_mad and to_in_mad:
+        return round(from_in_mad / to_in_mad, 6)
+    return 1.0  # unknown currency — no conversion
+
+
+def _convert_price(price_str: str, target_currency: str) -> tuple[Optional[float], str]:
+    """
+    Parse a raw price string, detect its currency, convert to target_currency.
+    Returns (converted_value, detected_source_currency).
+    """
+    src = _detect_currency(price_str)
+    val = _parse_price_value(price_str)
+    if val is None:
+        return None, src
+    rate = _get_rate(src, target_currency)
+    return round(val * rate, 2), src
+
+
 # ── Models ────────────────────────────────────────────────────────────────────
 
 class Product(BaseModel):
@@ -65,6 +159,7 @@ class ScrapeConfig(BaseModel):
     engine: str = "duckduckgo"
     serpapi_key: Optional[str] = None
     target_url: Optional[str] = None   # optional competitor site to restrict search to
+    target_currency: str = "MAD"       # currency to convert all prices into
 
 
 class ScrapeJob:
@@ -212,14 +307,84 @@ def _extract_from_css_classes(soup: BeautifulSoup) -> Optional[str]:
     return None
 
 
+def _extract_page_product_name(soup: BeautifulSoup) -> str:
+    """Best-effort extraction of the product name shown on a page."""
+    # JSON-LD first
+    for script in soup.find_all('script', type='application/ld+json'):
+        try:
+            data = json.loads(script.string or '')
+            if isinstance(data, list):
+                data = data[0] if data else {}
+            name = data.get('name') or data.get('Name')
+            if name and isinstance(name, str) and len(name) > 2:
+                return name.strip()
+        except Exception:
+            pass
+    # itemprop="name"
+    el = soup.find(attrs={'itemprop': 'name'})
+    if el:
+        txt = el.get('content') or el.get_text(strip=True)
+        if txt:
+            return txt.strip()
+    # og:title
+    og = soup.find('meta', property='og:title')
+    if og and og.get('content'):
+        return og['content'].strip()
+    # <title> tag (often "Product Name | Site")
+    title_tag = soup.find('title')
+    if title_tag:
+        raw = title_tag.get_text(strip=True)
+        # strip everything after the first | or – delimiter
+        for sep in ('|', '–', '-', '::'):
+            if sep in raw:
+                raw = raw.split(sep)[0].strip()
+                break
+        return raw
+    # h1 fallback
+    h1 = soup.find('h1')
+    return h1.get_text(strip=True) if h1 else ""
+
+
+def _name_matches(page_name: str, expected_title: str, threshold: float = 0.35) -> bool:
+    """
+    Return True if page_name is a plausible match for expected_title.
+
+    Strategy: tokenise both strings (lowercase, drop short stop-words),
+    then check what fraction of the expected title's significant tokens
+    appear anywhere in the page name. Threshold is intentionally low (35%)
+    so partial / translated names still pass — we just want to rule out
+    completely wrong products.
+    """
+    if not page_name or not expected_title:
+        return True  # can't verify → don't reject
+
+    _STOPS = {'the', 'a', 'an', 'and', 'or', 'of', 'for', 'with', 'in', 'on',
+              'to', 'by', 'at', 'de', 'du', 'le', 'la', 'les', 'et', 'pour'}
+
+    def tokenise(s: str) -> set:
+        tokens = re.findall(r'[a-z0-9]+', s.lower())
+        return {t for t in tokens if len(t) > 2 and t not in _STOPS}
+
+    expected_tokens = tokenise(expected_title)
+    if not expected_tokens:
+        return True
+
+    page_tokens = tokenise(page_name)
+    overlap = expected_tokens & page_tokens
+    score = len(overlap) / len(expected_tokens)
+    return score >= threshold
+
+
 def _scrape_page_for_price(url: str) -> dict:
-    """Fetch a URL and extract price + availability using a tiered strategy."""
+    """Fetch a URL and extract price, availability and product name."""
     try:
         resp = requests.get(url, headers=HEADERS, timeout=14)
         if resp.status_code >= 400:
-            return {"found_price": None, "found_availability": "Error"}
+            return {"found_price": None, "found_availability": "Error", "page_name": ""}
 
         soup = BeautifulSoup(resp.text, "lxml")
+
+        page_name = _extract_page_product_name(soup)
 
         # Tier 1: JSON-LD structured data (most reliable)
         found_price = _extract_from_jsonld(soup)
@@ -236,9 +401,8 @@ def _scrape_page_for_price(url: str) -> dict:
         if not found_price:
             found_price = _extract_from_css_classes(soup)
 
-        # Tier 5: Regex on the first 80k chars — but only accept strings with a currency symbol
+        # Tier 5: Regex on the first 80k chars — currency-anchored only
         if not found_price:
-            # Restrict to currency-anchored matches only (no bare decimals)
             currency_re = re.compile(
                 r'(?:[\$€£¥₹₩]\s*\d[\d\s,]*\.?\d{0,2})'
                 r'|(?:\d[\d\s,]*\.?\d{0,2}\s*(?:€|EUR|USD|GBP|DZD|MAD|TND|DA|DH))',
@@ -261,9 +425,10 @@ def _scrape_page_for_price(url: str) -> dict:
         elif any(x in pg for x in ["limited stock", "low stock", "hurry", "only"]):
             found_availability = "Low Stock"
 
-        return {"found_price": found_price, "found_availability": found_availability}
+        return {"found_price": found_price, "found_availability": found_availability,
+                "page_name": page_name}
     except Exception:
-        return {"found_price": None, "found_availability": "Error"}
+        return {"found_price": None, "found_availability": "Error", "page_name": ""}
 
 
 def _normalize_domain(url: str) -> str:
@@ -276,7 +441,7 @@ def _normalize_domain(url: str) -> str:
 
 
 async def _search_site_for_product(query: str, domain: str, engine: str,
-                                   max_results: int = 6) -> list:
+                                   max_results: int = 64) -> list:
     """Search exclusively within a specific domain using site: operator."""
     site_query = f'site:{domain} {query}'
     results = []
@@ -303,7 +468,7 @@ async def _search_site_for_product(query: str, domain: str, engine: str,
                 lambda: requests.get(
                     "https://www.bing.com/search",
                     params={"q": site_query, "count": max_results},
-                    headers=HEADERS, timeout=10,
+                    headers=HEADERS, timeout=20,
                 )
             )
             soup = BeautifulSoup(resp.text, "lxml")
@@ -324,7 +489,7 @@ async def _search_site_for_product(query: str, domain: str, engine: str,
     return results
 
 
-async def _search_urls(query: str, engine: str, max_results: int = 6) -> list:
+async def _search_urls(query: str, engine: str, max_results: int) -> list:
     """Return result dicts from a search engine (open web, no site restriction)."""
     results = []
 
@@ -333,7 +498,7 @@ async def _search_urls(query: str, engine: str, max_results: int = 6) -> list:
         def _ddg_web():
             out = []
             try:
-                for r in DDGS().text(query, max_results=max_results):
+                for r in DDGS().text(query, max_results=30):
                     href = r.get("href", "")
                     if href.startswith("http"):
                         out.append({"url": href,
@@ -350,7 +515,7 @@ async def _search_urls(query: str, engine: str, max_results: int = 6) -> list:
                 lambda: requests.get(
                     "https://www.bing.com/search",
                     params={"q": query, "count": max_results},
-                    headers=HEADERS, timeout=10,
+                    headers=HEADERS, timeout=20,
                 )
             )
             soup = BeautifulSoup(resp.text, "lxml")
@@ -369,93 +534,116 @@ async def _search_urls(query: str, engine: str, max_results: int = 6) -> list:
     return results
 
 
+async def _scrape_and_verify(url: str, expected_title: str, domain_lock: str = "") -> dict:
+    """
+    Scrape url, verify the page's product name fuzzy-matches expected_title.
+    Returns the scrape dict with an extra 'verified' bool, or empty dict on mismatch.
+    domain_lock: if set, reject URLs not on that domain.
+    """
+    if not url.startswith("http"):
+        return {}
+    if domain_lock and domain_lock not in _normalize_domain(url):
+        return {}
+    data = await asyncio.to_thread(_scrape_page_for_price, url)
+    if not _name_matches(data.get("page_name", ""), expected_title):
+        return {}   # wrong product — skip
+    return data
+
+
 async def _find_price_for_product(product: Product, engine: str,
                                    target_url: Optional[str] = None) -> dict:
-    """Return best found price + meta for one product.
-
-    If target_url is set, ALL lookups are restricted to that site — no external
-    URLs are ever visited. The search query uses `site:<domain>` and only URLs
-    whose hostname matches the domain are scraped.
-
-    Strategy:
-    1. Build a specific search query (SKU preferred, then title + vendor)
-    2. Search the target site (or open web if no target)
-    3. Visit matching pages and extract using structured data
-    4. Snippets are only used as a last resort
     """
-    # Build the most specific query possible
-    parts = []
+    Find the price of a product by SKU, verified against the product title.
+
+    Flow
+    ----
+    Phase 1 — SKU search (primary):
+      • Query = "<SKU>" [+ site:<domain> if target_url is set]
+      • Visit each result, scrape, check if page name ≈ product title
+      • First passing page → done
+
+    Phase 2 — title fallback (only if SKU search fails or no SKU):
+      • Query = "<title>" [+ vendor]
+      • Same scrape + verify loop
+
+    target_url constraint: when provided, EVERY search uses site:<domain>
+    and only URLs on that domain are ever visited.
+    """
+    domain = _normalize_domain(target_url) if target_url else ""
+    NOT_FOUND = {"found_price": None, "found_availability": "Not found",
+                 "found_url": "", "found_source": ""}
+
+    async def _try_results(results: list, limit: int = 6) -> Optional[dict]:
+        for r in results[:limit]:
+            url = r.get("url", "")
+            data = await _scrape_and_verify(url, product.title, domain_lock=domain)
+            if data and data.get("found_price"):
+                return {
+                    "found_price": data["found_price"],
+                    "found_availability": data["found_availability"],
+                    "found_url": url,
+                    "found_source": r.get("title", ""),
+                    "page_name": data.get("page_name", ""),
+                }
+        return None
+
+    # ── Phase 1: SKU-only search ──────────────────────────────────────────────
     if product.sku:
-        parts.append(f'"{product.sku}"')
+        sku_query = f'"{product.sku}"'
+        if domain:
+            results = await _search_site_for_product(sku_query, domain, engine, max_results=10)
+        else:
+            results = await _search_urls(sku_query, engine, max_results=10)
+
+        hit = await _try_results(results)
+        if hit:
+            return hit
+
+        # If target URL is set and search returned nothing, try the base URL directly
+        if domain and not results and target_url:
+            data = await _scrape_and_verify(target_url, product.title, domain_lock=domain)
+            if data and data.get("found_price"):
+                return {"found_price": data["found_price"],
+                        "found_availability": data["found_availability"],
+                        "found_url": target_url, "found_source": domain,
+                        "page_name": data.get("page_name", "")}
+
+    # ── Phase 2: title + vendor search (fallback) ─────────────────────────────
+    title_parts = []
     if product.title:
-        parts.append(f'"{product.title}"')
+        title_parts.append(f'"{product.title}"')
     if product.vendor and product.vendor not in product.title:
-        parts.append(product.vendor)
-    query = " ".join(parts)
+        title_parts.append(product.vendor)
+    title_query = " ".join(title_parts)
 
-    if target_url:
-        domain = _normalize_domain(target_url)
-        results = await _search_site_for_product(query, domain, engine, max_results=6)
+    if title_query:
+        if domain:
+            results = await _search_site_for_product(title_query, domain, engine, max_results=10)
+        else:
+            results = await _search_urls(title_query + " price buy", engine, max_results=10)
 
-        # If search returned nothing, fall back to visiting the root/target URL directly
-        if not results:
-            results = [{"url": target_url, "snippet": "", "title": domain}]
+        hit = await _try_results(results)
+        if hit:
+            return hit
 
-        # Only visit URLs that belong to the target domain
-        for r in results[:5]:
-            url = r.get("url", "")
-            if not url.startswith("http"):
-                continue
-            if domain not in _normalize_domain(url):
-                continue  # never leave the target site
-            data = await asyncio.to_thread(_scrape_page_for_price, url)
-            if data["found_price"]:
-                return {
-                    "found_price": data["found_price"],
-                    "found_availability": data["found_availability"],
-                    "found_url": url,
-                    "found_source": r.get("title", ""),
-                }
-    else:
-        # Open web search
-        results = await _search_urls(query + " price buy", engine, max_results=6)
+        # Last resort for open-web: price from snippet (no page visit)
+        if not domain:
+            currency_re = re.compile(
+                r'(?:[\$€£¥₹₩]\s*\d[\d\s,]*\.?\d{0,2})'
+                r'|(?:\d[\d\s,]*\.?\d{0,2}\s*(?:€|EUR|USD|GBP|DZD|MAD|TND|DA|DH))',
+            )
+            for r in results:
+                m = currency_re.search(r.get("snippet", ""))
+                if m:
+                    val = _parse_price_value(m.group())
+                    if val is not None:
+                        return {"found_price": m.group().strip(),
+                                "found_availability": "Unknown",
+                                "found_url": r.get("url", ""),
+                                "found_source": r.get("title", ""),
+                                "page_name": ""}
 
-        for r in results[:4]:
-            url = r.get("url", "")
-            if not url.startswith("http"):
-                continue
-            data = await asyncio.to_thread(_scrape_page_for_price, url)
-            if data["found_price"]:
-                return {
-                    "found_price": data["found_price"],
-                    "found_availability": data["found_availability"],
-                    "found_url": url,
-                    "found_source": r.get("title", ""),
-                }
-
-        # Last resort: snippet text with currency symbol only
-        currency_re = re.compile(
-            r'(?:[\$€£¥₹₩]\s*\d[\d\s,]*\.?\d{0,2})'
-            r'|(?:\d[\d\s,]*\.?\d{0,2}\s*(?:€|EUR|USD|GBP|DZD|MAD|TND|DA|DH))',
-        )
-        for r in results:
-            m = currency_re.search(r.get("snippet", ""))
-            if m:
-                val = _parse_price_value(m.group())
-                if val is not None:
-                    return {
-                        "found_price": m.group().strip(),
-                        "found_availability": "Unknown",
-                        "found_url": r.get("url", ""),
-                        "found_source": r.get("title", ""),
-                    }
-
-    return {
-        "found_price": None,
-        "found_availability": "Not found",
-        "found_url": "",
-        "found_source": "",
-    }
+    return NOT_FOUND
 
 
 # ── Job runner ────────────────────────────────────────────────────────────────
@@ -465,6 +653,7 @@ async def _run_scrape_job(job: ScrapeJob):
     products = job.config.products
     engine = job.config.engine
     target_url = job.config.target_url or None
+    target_currency = job.config.target_currency or "MAD"
 
     site_label = f" on {target_url}" if target_url else ""
     job.push({"type": "status",
@@ -484,14 +673,20 @@ async def _run_scrape_job(job: ScrapeJob):
             data = {"found_price": None, "found_availability": "Error",
                     "found_url": "", "found_source": str(e)}
 
-        # Compute price delta
+        # Currency conversion
+        converted_price = None
+        source_currency = None
+        if data["found_price"]:
+            converted_price, source_currency = _convert_price(
+                data["found_price"], target_currency
+            )
+
+        # Compute price delta in target currency
         delta = None
         delta_pct = None
-        if product.your_price and data["found_price"]:
-            val = _parse_price_value(data["found_price"])
-            if val is not None:
-                delta = round(val - product.your_price, 2)
-                delta_pct = round((delta / product.your_price) * 100, 1)
+        if product.your_price and converted_price is not None:
+            delta = round(converted_price - product.your_price, 2)
+            delta_pct = round((delta / product.your_price) * 100, 1)
 
         result = {
             "title": product.title,
@@ -502,9 +697,13 @@ async def _run_scrape_job(job: ScrapeJob):
             "your_price": product.your_price,
             "your_qty": product.your_qty,
             "found_price": data["found_price"],
+            "found_price_converted": converted_price,
+            "source_currency": source_currency,
+            "target_currency": target_currency,
             "found_availability": data["found_availability"],
             "found_url": data["found_url"],
             "found_source": data["found_source"],
+            "found_name": data.get("page_name", ""),
             "delta": delta,
             "delta_pct": delta_pct,
         }

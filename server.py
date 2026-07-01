@@ -1,7 +1,10 @@
 import asyncio
 import json
 import os
+import queue as _queue
+import subprocess
 import sys
+import threading
 import uuid
 from typing import Optional
 from datetime import datetime
@@ -41,7 +44,7 @@ class SpiderConfig(BaseModel):
     skip_domains: list[str] = ["wikipedia", "reddit", "youtube"]
     extract_fields: list[str] = ["price", "rating", "reviews", "brand", "availability"]
     serpapi_key: Optional[str] = None
-    search_engine: str = "duckduckgo"   # "google" | "duckduckgo" | "bing" | "all"
+    search_engine: str = "bing"   # "google" | "duckduckgo" | "bing" | "all"
     verbose: bool = False
 
 
@@ -103,7 +106,7 @@ async def _search_duckduckgo(query: str, max_results: int,
         # Iterate one-by-one so a mid-stream separator error keeps partial results
         urls: list[str] = []
         try:
-            for r in DDGS().text(query, max_results=max_results):
+            for r in DDGS().text(query, max_results=6):
                 url = r.get("href", "")
                 if url and url.startswith("http") and not any(s in url for s in skip_domains):
                     urls.append(url)
@@ -184,11 +187,15 @@ async def fetch_urls(config: SpiderConfig, job: Job) -> list[str]:
         return list(dict.fromkeys(urls))[:config.max_results]
 
     elif engine == "google":
+        job.push({"type": "status", "msg":"Initializing Google Search"})
         return await _search_google(config.query, config.max_results,
                                     config.serpapi_key, config.skip_domains)
     elif engine == "bing":
+        job.push({"type": "status", "msg":"Initializing Bing Search"})
+
         return await _search_bing(config.query, config.max_results, config.skip_domains)
     else:
+        job.push({"type":"status", "msg":"Initializing DuckDuckGo Search"})
         return await _search_duckduckgo(config.query, config.max_results, config.skip_domains)
 
 
@@ -230,29 +237,57 @@ async def run_spider_job(job: Job):
         output_file = config_file.replace(".json", "_out.jsonl")
         runner_script = os.path.join(os.path.dirname(__file__), "run_scrapy.py")
 
-        proc = await asyncio.create_subprocess_exec(
-            sys.executable, runner_script, config_file, output_file,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=os.path.dirname(__file__),
-        )
+        # Use subprocess.Popen in a thread — avoids asyncio event loop
+        # subprocess limitations on Windows (SelectorEventLoop raises NotImplementedError).
+        line_q: _queue.Queue = _queue.Queue()
+        loop = asyncio.get_event_loop()
+        done_event = asyncio.Event()
 
-        async def read_stderr():
-            async for line in proc.stderr:
-                line = line.decode().strip()
-                if not line:
-                    continue
-                # Always surface errors; verbose shows everything
-                if "ERROR" in line or "CRITICAL" in line or job.config.verbose:
+        def _run_proc():
+            proc = subprocess.Popen(
+                [sys.executable, runner_script, config_file, output_file],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                cwd=os.path.dirname(__file__),
+                encoding="utf-8",
+                errors="replace",
+            )
+
+            def _drain_stderr():
+                for raw in proc.stderr:
+                    line_q.put(("err", raw.rstrip()))
+
+            threading.Thread(target=_drain_stderr, daemon=True).start()
+
+            for raw in proc.stdout:
+                line_q.put(("out", raw.rstrip()))
+
+            proc.wait()
+            line_q.put(("done", None))
+            loop.call_soon_threadsafe(done_event.set)
+
+        threading.Thread(target=_run_proc, daemon=True).start()
+
+        while not done_event.is_set() or not line_q.empty():
+            try:
+                kind, data = line_q.get_nowait()
+            except _queue.Empty:
+                await asyncio.sleep(0.05)
+                continue
+
+            if kind == "done":
+                break
+
+            if kind == "err":
+                if data and ("ERROR" in data or "CRITICAL" in data or job.config.verbose):
                     job.push({"type": "log", "status": "verbose",
-                              "msg": f"[scrapy] {line}", "url": "",
+                              "msg": f"[scrapy] {data}", "url": "",
                               "metrics": dict(job.metrics),
                               "elapsed": job.elapsed()})
+                continue
 
-        asyncio.create_task(read_stderr())
-
-        async for raw in proc.stdout:
-            line = raw.decode().strip()
+            # kind == "out"
+            line = data.strip()
             if not line:
                 continue
             try:
@@ -280,7 +315,7 @@ async def run_spider_job(job: Job):
                 job.results.append(clean)
                 job.push({"type": "product", "data": clean})
 
-        await proc.wait()
+        await done_event.wait()
         try:
             os.unlink(config_file)
         except Exception:
@@ -300,7 +335,8 @@ async def run_spider_job(job: Job):
 
     except Exception as e:
         job.status = "error"
-        job.push({"type": "error", "msg": str(e)})
+        msg = str(e) or f"{type(e).__name__} (no details — check server console)"
+        job.push({"type": "error", "msg": msg})
     finally:
         job.done = True
 
@@ -393,7 +429,8 @@ async def root():
 
 if __name__ == "__main__" : #or user_input == 'r'
     print("_"*20)
-    print("initialising Server")
+    print("initialising Server, YIPPEEEEE")
     print("_"*20)
     import uvicorn
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=False)
+    print("INITIALIZING UVICORN ON LOCALHOST PORT 8000 WITH RELOAD")
+    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
