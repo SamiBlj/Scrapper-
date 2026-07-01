@@ -425,10 +425,14 @@ def _scrape_page_for_price(url: str) -> dict:
         elif any(x in pg for x in ["limited stock", "low stock", "hurry", "only"]):
             found_availability = "Low Stock"
 
+        # Visible text — used for SKU presence check
+        page_text = soup.get_text(" ", strip=True)
+
         return {"found_price": found_price, "found_availability": found_availability,
-                "page_name": page_name}
+                "page_name": page_name, "page_text": page_text}
     except Exception:
-        return {"found_price": None, "found_availability": "Error", "page_name": ""}
+        return {"found_price": None, "found_availability": "Error",
+                "page_name": "", "page_text": ""}
 
 
 def _normalize_domain(url: str) -> str:
@@ -534,99 +538,122 @@ async def _search_urls(query: str, engine: str, max_results: int) -> list:
     return results
 
 
-async def _scrape_and_verify(url: str, expected_title: str, domain_lock: str = "") -> dict:
+async def _scrape_and_verify(url: str, domain_lock: str = "",
+                             expected_title: str = "", expected_sku: str = "") -> dict:
     """
-    Scrape url, verify the page's product name fuzzy-matches expected_title.
-    Returns the scrape dict with an extra 'verified' bool, or empty dict on mismatch.
-    domain_lock: if set, reject URLs not on that domain.
+    Fetch url and verify it is the right product before returning.
+
+    Verification rules (only applied when the value is non-empty):
+    - expected_title → page name must fuzzy-match it (35% token overlap)
+    - expected_sku   → SKU must appear literally in the visible page text
+
+    Both checks must pass when both values are provided.
+    Returns the scrape dict on success, empty dict on any failure.
     """
     if not url.startswith("http"):
         return {}
     if domain_lock and domain_lock not in _normalize_domain(url):
         return {}
+
     data = await asyncio.to_thread(_scrape_page_for_price, url)
-    if not _name_matches(data.get("page_name", ""), expected_title):
-        return {}   # wrong product — skip
+
+    # Name check — only when the product has a title
+    if expected_title and not _name_matches(data.get("page_name", ""), expected_title):
+        return {}
+
+    # SKU check — only when the product has a SKU
+    # The SKU must appear somewhere in the visible page text (case-insensitive)
+    if expected_sku:
+        page_text = data.get("page_text", "")
+        if expected_sku.lower() not in page_text.lower():
+            return {}
+
     return data
 
 
 async def _find_price_for_product(product: Product, engine: str,
                                    target_url: Optional[str] = None) -> dict:
     """
-    Find the price of a product by SKU, verified against the product title.
+    Search and verify strategy:
 
-    Flow
-    ----
-    Phase 1 — SKU search (primary):
-      • Query = "<SKU>" [+ site:<domain> if target_url is set]
-      • Visit each result, scrape, check if page name ≈ product title
-      • First passing page → done
+    Has SKU only   → search by SKU.  No extra verification needed (SKU is exact).
+    Has name only  → search by name. Verify page name matches.
+    Has both       → Phase 1: search by SKU, verify name matches.
+                     Phase 2 (fallback): search by name, verify BOTH name and SKU match.
 
-    Phase 2 — title fallback (only if SKU search fails or no SKU):
-      • Query = "<title>" [+ vendor]
-      • Same scrape + verify loop
-
-    target_url constraint: when provided, EVERY search uses site:<domain>
-    and only URLs on that domain are ever visited.
+    If target_url is set, every query is restricted to site:<domain> and
+    only URLs on that domain are ever scraped.
     """
-    domain = _normalize_domain(target_url) if target_url else ""
-    NOT_FOUND = {"found_price": None, "found_availability": "Not found",
-                 "found_url": "", "found_source": ""}
+    has_sku  = bool(product.sku and product.sku.strip())
+    has_name = bool(product.title and product.title.strip())
+    domain   = _normalize_domain(target_url) if target_url else ""
 
-    async def _try_results(results: list, limit: int = 6) -> Optional[dict]:
+    NOT_FOUND = {"found_price": None, "found_availability": "Not found",
+                 "found_url": "", "found_source": "", "page_name": ""}
+
+    async def _try(results: list, verify_title: str = "", verify_sku: str = "",
+                   limit: int = 6) -> Optional[dict]:
+        """Visit each result URL, apply verification, return first valid hit."""
         for r in results[:limit]:
             url = r.get("url", "")
-            data = await _scrape_and_verify(url, product.title, domain_lock=domain)
+            data = await _scrape_and_verify(
+                url,
+                domain_lock=domain,
+                expected_title=verify_title,
+                expected_sku=verify_sku,
+            )
             if data and data.get("found_price"):
                 return {
-                    "found_price": data["found_price"],
+                    "found_price":        data["found_price"],
                     "found_availability": data["found_availability"],
-                    "found_url": url,
-                    "found_source": r.get("title", ""),
-                    "page_name": data.get("page_name", ""),
+                    "found_url":          url,
+                    "found_source":       r.get("title", ""),
+                    "page_name":          data.get("page_name", ""),
                 }
         return None
 
-    # ── Phase 1: SKU-only search ──────────────────────────────────────────────
-    if product.sku:
-        sku_query = f'"{product.sku}"'
+    async def _search(query: str) -> list:
         if domain:
-            results = await _search_site_for_product(sku_query, domain, engine, max_results=10)
-        else:
-            results = await _search_urls(sku_query, engine, max_results=10)
+            return await _search_site_for_product(query, domain, engine, max_results=10)
+        return await _search_urls(query, engine, max_results=10)
 
-        hit = await _try_results(results)
+    # ── Phase 1: SKU search ───────────────────────────────────────────────────
+    if has_sku:
+        results = await _search(f'"{product.sku}"')
+
+        # Verify name only when the product also has one
+        hit = await _try(results, verify_title=product.title if has_name else "")
         if hit:
             return hit
 
-        # If target URL is set and search returned nothing, try the base URL directly
+        # target_url with no search results → try the base URL directly
         if domain and not results and target_url:
-            data = await _scrape_and_verify(target_url, product.title, domain_lock=domain)
+            data = await _scrape_and_verify(
+                target_url, domain_lock=domain,
+                expected_title=product.title if has_name else "",
+            )
             if data and data.get("found_price"):
-                return {"found_price": data["found_price"],
-                        "found_availability": data["found_availability"],
-                        "found_url": target_url, "found_source": domain,
-                        "page_name": data.get("page_name", "")}
+                return {**data, "found_url": target_url,
+                        "found_source": domain, "page_name": data.get("page_name", "")}
 
-    # ── Phase 2: title + vendor search (fallback) ─────────────────────────────
-    title_parts = []
-    if product.title:
-        title_parts.append(f'"{product.title}"')
-    if product.vendor and product.vendor not in product.title:
-        title_parts.append(product.vendor)
-    title_query = " ".join(title_parts)
+    # ── Phase 2: name search (fallback) ──────────────────────────────────────
+    if has_name:
+        title_parts = [f'"{product.title}"']
+        if product.vendor and product.vendor not in product.title:
+            title_parts.append(product.vendor)
+        title_query = " ".join(title_parts)
 
-    if title_query:
-        if domain:
-            results = await _search_site_for_product(title_query, domain, engine, max_results=10)
-        else:
-            results = await _search_urls(title_query + " price buy", engine, max_results=10)
+        results = await _search(title_query if domain else title_query + " price buy")
 
-        hit = await _try_results(results)
+        # When the product also has a SKU, require it to appear on the page too —
+        # this prevents accepting a page that shares a similar name but is a different item.
+        hit = await _try(results,
+                         verify_title=product.title,
+                         verify_sku=product.sku if has_sku else "")
         if hit:
             return hit
 
-        # Last resort for open-web: price from snippet (no page visit)
+        # Last resort: extract price directly from search snippet (no page visit)
         if not domain:
             currency_re = re.compile(
                 r'(?:[\$€£¥₹₩]\s*\d[\d\s,]*\.?\d{0,2})'
@@ -634,14 +661,10 @@ async def _find_price_for_product(product: Product, engine: str,
             )
             for r in results:
                 m = currency_re.search(r.get("snippet", ""))
-                if m:
-                    val = _parse_price_value(m.group())
-                    if val is not None:
-                        return {"found_price": m.group().strip(),
-                                "found_availability": "Unknown",
-                                "found_url": r.get("url", ""),
-                                "found_source": r.get("title", ""),
-                                "page_name": ""}
+                if m and _parse_price_value(m.group()) is not None:
+                    return {"found_price": m.group().strip(), "found_availability": "Unknown",
+                            "found_url": r.get("url", ""), "found_source": r.get("title", ""),
+                            "page_name": ""}
 
     return NOT_FOUND
 

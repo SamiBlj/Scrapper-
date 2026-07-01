@@ -336,6 +336,9 @@ tr.scanning td { animation: rowpulse 1.5s infinite; }
   <button class="page-tab" data-page="prospects" onclick="switchPage('prospects')">
     <i class="ti ti-brand-google-maps"></i> Prospect Search :]
   </button>
+  <button class="page-tab" data-page="crawl" onclick="switchPage('crawl')">
+    <i class="ti ti-world-search"></i> Site Crawler <(◣_◢)>
+  </button>
 </nav>
 
 <!-- ══════════════════════════════════════════════════════════
@@ -378,7 +381,7 @@ tr.scanning td { animation: rowpulse 1.5s infinite; }
       </div>
       <div class="row2">
         <div class="field">
-          <label>Sites to scan</label>
+          <label>Sites to scan</label>  
           <input type="number" id="max_results" min="1" value="30" placeholder="e.g. 50">
         </div>
         <div class="field">
@@ -829,6 +832,145 @@ tr.scanning td { animation: rowpulse 1.5s infinite; }
 </div>
 </div><!-- /page-prospects -->
 
+
+<!-- ══════════════════════════════════════════════════════════
+     PAGE: SITE CRAWLER
+══════════════════════════════════════════════════════════ -->
+<div id="page-crawl" class="page">
+<div class="app">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-section">
+      <label class="sidebar-label">Site URL</label>
+      <input id="crawlUrl" class="input" type="url" placeholder="https://example.com" style="width:100%">
+    </div>
+
+    <div class="sidebar-section">
+      <label class="sidebar-label">Max pages to scan</label>
+      <input id="crawlMaxPages" class="input" type="number" value="300" min="10" max="5000" style="width:100%">
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Safety cap — stops after this many pages regardless of site size</div>
+    </div>
+
+    <div class="sidebar-section">
+      <label class="sidebar-label">Max products to collect</label>
+      <input id="crawlMaxProducts" class="input" type="number" value="1000" min="10" max="10000" style="width:100%">
+    </div>
+
+    <div class="sidebar-section">
+      <label class="sidebar-label">Concurrent requests</label>
+      <input id="crawlConcurrency" class="input" type="number" value="6" min="1" max="20" style="width:100%">
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Higher = faster but more likely to get rate-limited</div>
+    </div>
+
+    <button id="crawlBtn" class="btn btn-primary" onclick="runCrawl()" style="width:100%;margin-top:8px">
+      <i class="ti ti-world-search"></i> Start Crawl
+    </button>
+    <button id="crawlStopBtn" class="btn" onclick="stopCrawl()" style="width:100%;margin-top:6px;display:none">
+      <i class="ti ti-player-stop"></i> Stop
+    </button>
+
+    <div class="sidebar-section" style="margin-top:16px">
+      <button class="btn" onclick="crawlExport('csv')" style="width:100%" id="crawlExportBtn" disabled>
+        <i class="ti ti-download"></i> Export CSV
+      </button>
+    </div>
+
+  </aside>
+
+  <!-- Main -->
+  <main class="main" style="display:flex;flex-direction:column;gap:0;padding:0;overflow:hidden">
+
+<!--
+     Main 
+  <main class="main" style="display:flex;flex-direction:column;gap:0;padding:0;overflow:hidden">
+
+     Status bar 
+    <div style="padding:12px 20px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:16px;flex-shrink:0">
+      <div id="crawlStatusDot" style="width:8px;height:8px;border-radius:50%;background:var(--text3);flex-shrink:0"></div>
+      <div id="crawlStatusMsg" style="font-size:13px;color:var(--text2);flex:1">Ready — enter a URL and click Start Crawl</div>
+      <div style="display:flex;gap:20px;font-size:12px;color:var(--text2)">
+        <span id="cw-timer" style="color:var(--text3)">0s</span>
+        <span><b id="cw-scanned">0</b> pages scanned</span>
+        <span><b id="cw-found" style="color:var(--green)"></b> products found</span>
+        <span><b id="cw-queued">0</b> queued</span>
+      </div>
+    </div>
+    
+
+     Progress bar 
+    <div style="height:3px;background:var(--surface2);flex-shrink:0">
+      <div class="pregress-wrap id="crawlProgressBar" style="height:100%; width:100%; background: var(--white); transition: width 0.3s">
+      </div>
+    </div>
+    <div class="progress-wrap" id="progressWrap">
+      <div class="progress-header">
+        <span id="progressLabel">Scanning…</span>
+        <span id="progressPct">0%</span>
+      </div>
+      <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+    </div>-->
+
+
+    <!-- Status bar -->
+    <div style="padding:12px 20px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:16px;flex-shrink:0">
+      <div id="crawlStatusDot" style="width:8px;height:8px;border-radius:50%;background:var(--text3);flex-shrink:0"></div>
+      <div id="crawlStatusMsg" style="font-size:13px;color:var(--text2);flex:1">Ready — enter a URL and click Start Crawl</div>
+      <div style="display:flex;gap:20px;font-size:12px;color:var(--text2)">
+        <span id="cw-timer" style="color:var(--text3)">0s</span>
+        <span><b id="cw-scanned">0</b> pages scanned</span>
+        <span><b id="cw-found" style="color:var(--green)"></b> products found</span>
+        <span><b id="cw-queued">0</b> queued</span>
+      </div>
+    </div>
+
+    <!-- Progress bar -->
+    <div style="height:3px;background:var(--surface2);flex-shrink:0">
+      <div id="crawlProgressBar" style="height:200%;width:0%;background:var(--white);transition:width 0.3s"></div>
+    </div>
+
+    <!-- Split view: live log + results table -->
+    <div style="display:flex;flex:1;overflow:hidden;min-height:0">
+
+      <!-- Left: live page log -->
+      <div style="width:320px;flex-shrink:0;border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden">
+        <div style="padding:8px 12px;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border);flex-shrink:0">
+          Pages crawled
+        </div>
+        <div id="crawlLog" style="flex:1;overflow-y:auto;font-size:11px;font-family:monospace;padding:6px 0"></div>
+      </div>
+
+      <!-- Right: products table -->
+      <div style="flex:1;overflow:auto;min-width:0">
+        <table class="results-table" style="min-width:900px">
+          <thead>
+            <tr>
+              <th style="width:220px">Name</th>
+              <th>Price</th>
+              <th>SKU</th>
+              <th>Brand</th>
+              <th>Availability</th>
+              <th>Category</th>
+              <th>Rating</th>
+              <th>Description</th>
+              <th>Source</th>
+            </tr>
+          </thead>
+          <tbody id="crawlResultsBody">
+            <tr><td colspan="9">
+              <div class="empty-state">
+                <i class="ti ti-world-search"></i>
+                <p>Crawl a site to see products here.</p>
+              </div>
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+</div>
+</div><!-- /page-crawl -->
 
 
 <script>
@@ -1679,6 +1821,229 @@ function sScrapeExport() {
   const keys = Object.keys(rows[0]);
   const csv = [keys.join(','), ...rows.map(r => keys.map(k => `"${String(r[k] ?? '').replace(/"/g,'""')}"`).join(','))].join('\n');
   download(csv, 'price_comparison.csv', 'text/csv');
+}
+
+// ══════════════════════════════════
+//  SITE CRAWLER
+// ══════════════════════════════════
+
+let crawlProducts = [];
+let crawlEventSource = null;
+let crawlTimer = null;
+let crawlSeconds = 0;
+let crawlStopped = false;
+
+function setCrawlStatus(state, msg) {
+  const dot = document.getElementById('crawlStatusDot');
+  const txt = document.getElementById('crawlStatusMsg');
+  txt.textContent = msg;
+  const colors = { idle: 'var(--text3)', running: 'var(--amber-text)', done: 'var(--green)', error: 'var(--red-text)' };
+  dot.style.background = colors[state] || 'var(--text3)';
+  if (state === 'running') dot.style.animation = 'pulse 1.2s ease-in-out infinite';
+  else dot.style.animation = '';
+}
+
+function crawlLogLine(url, isProduct) {
+  const log = document.getElementById('crawlLog');
+  const line = document.createElement('div');
+  line.style.cssText = `padding:3px 12px;border-bottom:1px solid var(--border);color:${isProduct ? 'var(--green)' : 'var(--text3)'}`;
+  const icon = isProduct ? '✅' : '·';
+  const short = url.replace(/^https?:\/\/[^/]+/, '').slice(0, 50) || '/';
+  line.textContent = `${icon} ${short}`;
+  line.title = url;
+  log.appendChild(line);
+  // Auto-scroll to bottom
+  log.scrollTop = log.scrollHeight;
+  // Keep log from growing too large in DOM
+  if (log.children.length > 300) log.removeChild(log.firstChild);
+}
+
+function renderCrawlProduct(product) {
+  const tbody = document.getElementById('crawlResultsBody');
+
+  // Clear empty state on first result
+  if (crawlProducts.length === 1) {
+    tbody.innerHTML = '';
+  }
+
+  const avail = product.availability || '';
+  const availColor = avail.toLowerCase().includes('in') ? 'var(--green)'
+    : avail.toLowerCase().includes('out') ? 'var(--red-text)' : 'var(--text3)';
+
+  const host = (() => { try { return new URL(product.url).hostname.replace('www.', ''); } catch { return ''; } })();
+  const priceStr = product.price
+    ? `<span style="font-weight:600;color:var(--green)">${product.price}${product.currency ? ' ' + product.currency : ''}</span>`
+    : '<span style="color:var(--text3)">—</span>';
+
+  const rating = product.rating
+    ? `${product.rating}${product.review_count ? ' <span style="color:var(--text3)">(${product.review_count})</span>' : ''}`
+    : '<span style="color:var(--text3)">—</span>';
+
+  const desc = product.description
+    ? `<span title="${product.description.replace(/"/g, '&quot;')}">${product.description.slice(0, 60)}${product.description.length > 60 ? '…' : ''}</span>`
+    : '<span style="color:var(--text3)">—</span>';
+
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td style="font-weight:500;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(product.name || '').replace(/"/g,'&quot;')}">${product.name || '<span style="color:var(--text3)">Unknown</span>'}</td>
+    <td>${priceStr}</td>
+    <td style="font-family:monospace;font-size:11px;color:var(--text2)">${product.sku || '<span style="color:var(--text3)">—</span>'}</td>
+    <td style="color:var(--text2)">${product.brand || '<span style="color:var(--text3)">—</span>'}</td>
+    <td><span style="color:${availColor}">${avail || '—'}</span></td>
+    <td style="font-size:12px;color:var(--text2)">${product.category || '<span style="color:var(--text3)">—</span>'}</td>
+    <td style="font-size:12px">${rating}</td>
+    <td style="font-size:12px;color:var(--text2)">${desc}</td>
+    <td><a href="${product.url}" target="_blank" rel="noopener" style="font-size:11px">${host} <i class="ti ti-external-link" style="font-size:10px"></i></a></td>
+  `;
+  tbody.appendChild(tr);
+}
+
+function updateCrawlStats(stats) {
+  if (stats.scanned != null) document.getElementById('cw-scanned').textContent = stats.scanned;
+  if (stats.found   != null) document.getElementById('cw-found').textContent   = stats.found;
+  if (stats.queued  != null) document.getElementById('cw-queued').textContent  = stats.queued;
+
+  // Progress bar: use scanned / (scanned + queued) as rough %
+  const total = (stats.scanned || 0) + (stats.queued || 0);
+  const pct = total > 0 ? Math.min(((stats.scanned || 0) / total) * 100, 99) : 0;
+  document.getElementById('crawlProgressBar').style.width = pct + '%';
+}
+
+async function runCrawl() {
+  const url = document.getElementById('crawlUrl').value.trim();
+  if (!url) { alert('Enter a URL to crawl.'); return; }
+
+  crawlProducts = [];
+  crawlStopped = false;
+  document.getElementById('crawlResultsBody').innerHTML = `
+    <tr><td colspan="9"><div class="empty-state"><i class="ti ti-loader"></i><p>Crawling…</p></div></td></tr>`;
+  document.getElementById('crawlLog').innerHTML = '';
+  document.getElementById('cw-scanned').textContent = '0';
+  document.getElementById('cw-found').textContent = '0';
+  document.getElementById('cw-queued').textContent = '0';
+  document.getElementById('crawlProgressBar').style.width = '0%';
+  document.getElementById('crawlExportBtn').disabled = true;
+  document.getElementById('crawlBtn').disabled = true;
+  document.getElementById('crawlStopBtn').style.display = '';
+
+  if (crawlEventSource) { crawlEventSource.close(); crawlEventSource = null; }
+  clearInterval(crawlTimer);
+  crawlSeconds = 0;
+  crawlTimer = setInterval(() => {
+    crawlSeconds++;
+    document.getElementById('cw-timer').textContent = crawlSeconds + 's';
+  }, 1000);
+
+  setCrawlStatus('running', `Crawling ${url}…`);
+
+  try {
+    const resp = await fetch(`${API}/api/crawler/jobs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url,
+        max_pages:    parseInt(document.getElementById('crawlMaxPages').value)    || 300,
+        max_products: parseInt(document.getElementById('crawlMaxProducts').value) || 1000,
+        concurrency:  parseInt(document.getElementById('crawlConcurrency').value) || 6,
+      }),
+    });
+    const { job_id } = await resp.json();
+
+    crawlEventSource = new EventSource(`${API}/api/crawler/jobs/${job_id}/stream`);
+
+    crawlEventSource.onmessage = (e) => {
+      if (crawlStopped) return;
+      const msg = JSON.parse(e.data);
+
+      if (msg.type === 'stream_end') { crawlEventSource.close(); return; }
+
+      if (msg.type === 'status') {
+        setCrawlStatus('running', msg.msg);
+      }
+
+      if (msg.type === 'progress') {
+        updateCrawlStats(msg.stats || {});
+        crawlLogLine(msg.url, false);
+      }
+
+      if (msg.type === 'product') {
+        crawlProducts.push(msg.data);
+        updateCrawlStats(msg.stats || {});
+        crawlLogLine(msg.data.url, true);
+        renderCrawlProduct(msg.data);
+        document.getElementById('crawlExportBtn').disabled = false;
+      }
+
+      if (msg.type === 'done') {
+        clearInterval(crawlTimer);
+        document.getElementById('crawlProgressBar').style.width = '100%';
+        document.getElementById('crawlBtn').disabled = false;
+        document.getElementById('crawlStopBtn').style.display = 'none';
+        document.getElementById('crawlExportBtn').disabled = crawlProducts.length === 0;
+        setCrawlStatus('done', `Done — ${crawlProducts.length} products found across ${msg.stats?.scanned || 0} pages in ${msg.elapsed}s`);
+        crawlEventSource.close();
+      }
+
+      if (msg.type === 'error') {
+        clearInterval(crawlTimer);
+        setCrawlStatus('error', 'Error: ' + msg.msg);
+        document.getElementById('crawlBtn').disabled = false;
+        document.getElementById('crawlStopBtn').style.display = 'none';
+        crawlEventSource.close();
+      }
+    };
+
+    crawlEventSource.onerror = () => {
+      if (!crawlStopped) setCrawlStatus('error', 'Stream lost — check server.');
+      clearInterval(crawlTimer);
+      document.getElementById('crawlBtn').disabled = false;
+      document.getElementById('crawlStopBtn').style.display = 'none';
+      crawlEventSource.close();
+    };
+
+  } catch (err) {
+    clearInterval(crawlTimer);
+    setCrawlStatus('error', 'Error: ' + err.message);
+    document.getElementById('crawlBtn').disabled = false;
+    document.getElementById('crawlStopBtn').style.display = 'none';
+  }
+}
+
+function stopCrawl() {
+  crawlStopped = true;
+  if (crawlEventSource) { crawlEventSource.close(); crawlEventSource = null; }
+  clearInterval(crawlTimer);
+  setCrawlStatus('idle', `Stopped — ${crawlProducts.length} products collected`);
+  document.getElementById('crawlBtn').disabled = false;
+  document.getElementById('crawlStopBtn').style.display = 'none';
+  if (crawlProducts.length > 0) document.getElementById('crawlExportBtn').disabled = false;
+}
+
+function crawlExport(fmt) {
+  if (!crawlProducts.length) { alert('No products to export.'); return; }
+
+  if (fmt === 'csv') {
+    // Collect all attribute keys
+    const attrKeys = [...new Set(crawlProducts.flatMap(p => Object.keys(p.attributes || {})))];
+    const baseKeys = ['name', 'price', 'currency', 'sku', 'brand', 'availability',
+                      'description', 'rating', 'review_count', 'category', 'url', 'images'];
+    const allKeys = [...baseKeys, ...attrKeys];
+
+    const rows = crawlProducts.map(p => {
+      const row = {};
+      baseKeys.forEach(k => {
+        row[k] = k === 'images' ? (p.images || []).join(' | ') : (p[k] ?? '');
+      });
+      attrKeys.forEach(k => { row[k] = (p.attributes || {})[k] ?? ''; });
+      return row;
+    });
+
+    const csv = [
+      allKeys.join(','),
+      ...rows.map(r => allKeys.map(k => `"${String(r[k] ?? '').replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+    download(csv, 'crawled_products.csv', 'text/csv');
+  }
 }
 
 </script>

@@ -456,7 +456,7 @@ async def _run_prospect_job(job: ProspectJob):
 
     # ── STEP 3: Website scraping ──────────────────────────────────────────────
     qualified = 0  # all results sourced from LinkedIn → all qualify
-    print("At this point Fuck it, ENUMARATOR THE FIRST!!!!")
+    print("Enumation of candidate")
     for i, c in enumerate(candidates):
         job.push({
             "type": "progress",
@@ -479,9 +479,11 @@ async def _run_prospect_job(job: ProspectJob):
             email = _extract_email(c.get("snippet", "")) or ""
 
         # For web-fallback candidates, look up LinkedIn now
-        print("THEE SHALL NOT FUCKING PASS, FOR THIS IS THE WEB-FALLBACK FOR ALL CANDIDATES YAH CUNTs")
+        print("----SEARCH FOR PROSPECT LINKEDIN ACCOUNT----")
+        print("Outputing Result...")
         linkedin_url = c.get("linkedin_url", "")
         if not linkedin_url and cfg.find_linkedin:
+            print("reinitiation of LinkedIn Search")
             linkedin_url = await _find_linkedin_for(c["title"], cfg.location, cfg.engine)
 
         if linkedin_url:
@@ -512,7 +514,7 @@ async def _run_prospect_job(job: ProspectJob):
         "elapsed": job.elapsed(),
     })
     job.done = True
-    print("IT'S THE FINAL COUNT DOOWWWWNNNN. Job done :D")
+    print("Job Completion SUCCESS")
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────

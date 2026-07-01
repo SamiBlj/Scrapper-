@@ -26,6 +26,10 @@ app.include_router(scraper_router)
 from prospects import router as prospects_router
 app.include_router(prospects_router)
 
+# Mount crawler router
+from crawler import router as crawler_router
+app.include_router(crawler_router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
