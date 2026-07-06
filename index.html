@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -326,7 +326,7 @@ tr.scanning td { animation: rowpulse 1.5s infinite; }
 
 <!-- ─── TAB BAR ─── -->
 <nav class="page-tabs">
-  <div class="tabs-logo"><i class="ti ti-spider"></i> THE SPIDER MOBILE!!!</div>
+  <div class="tabs-logo"><i class="ti ti-spider"></i> FML ┌∩┐(◣_◢)┌∩┐</div>
   <button class="page-tab active" data-page="bench" onclick="switchPage('bench')">
     <i class="ti ti-target"></i> Benchmarking
   </button>
@@ -881,36 +881,6 @@ tr.scanning td { animation: rowpulse 1.5s infinite; }
   <!-- Main -->
   <main class="main" style="display:flex;flex-direction:column;gap:0;padding:0;overflow:hidden">
 
-<!--
-     Main 
-  <main class="main" style="display:flex;flex-direction:column;gap:0;padding:0;overflow:hidden">
-
-     Status bar 
-    <div style="padding:12px 20px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:16px;flex-shrink:0">
-      <div id="crawlStatusDot" style="width:8px;height:8px;border-radius:50%;background:var(--text3);flex-shrink:0"></div>
-      <div id="crawlStatusMsg" style="font-size:13px;color:var(--text2);flex:1">Ready — enter a URL and click Start Crawl</div>
-      <div style="display:flex;gap:20px;font-size:12px;color:var(--text2)">
-        <span id="cw-timer" style="color:var(--text3)">0s</span>
-        <span><b id="cw-scanned">0</b> pages scanned</span>
-        <span><b id="cw-found" style="color:var(--green)"></b> products found</span>
-        <span><b id="cw-queued">0</b> queued</span>
-      </div>
-    </div>
-    
-
-     Progress bar 
-    <div style="height:3px;background:var(--surface2);flex-shrink:0">
-      <div class="pregress-wrap id="crawlProgressBar" style="height:100%; width:100%; background: var(--white); transition: width 0.3s">
-      </div>
-    </div>
-    <div class="progress-wrap" id="progressWrap">
-      <div class="progress-header">
-        <span id="progressLabel">Scanning…</span>
-        <span id="progressPct">0%</span>
-      </div>
-      <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
-    </div>-->
-
 
     <!-- Status bar -->
     <div style="padding:12px 20px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:16px;flex-shrink:0">
@@ -971,6 +941,159 @@ tr.scanning td { animation: rowpulse 1.5s infinite; }
   </main>
 </div>
 </div><!-- /page-crawl -->
+
+
+<!-- ══════════════════════════════════════════════════════════
+     PAGE: SMART EXTRACT
+══════════════════════════════════════════════════════════ -->
+<div id="page-smart" class="page">
+<div class="app">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-section">
+      <label class="sidebar-label">Site URL</label>
+      <input id="smUrl" class="input" type="url" placeholder="https://example.com" style="width:100%">
+    </div>
+
+    <div class="sidebar-section">
+      <label class="sidebar-label">Phase 1 — Max pages to map</label>
+      <input id="smMaxPages" class="input" type="number" value="200" min="10" max="5000" style="width:100%">
+    </div>
+
+    <div class="sidebar-section">
+      <label class="sidebar-label">Phase 2 — Sample pages for selector inference</label>
+      <input id="smSample" class="input" type="number" value="10" min="3" max="50" style="width:100%">
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">More = higher confidence selectors, slower start</div>
+    </div>
+
+    <div class="sidebar-section">
+      <label class="sidebar-label">Max products to extract</label>
+      <input id="smMaxProducts" class="input" type="number" value="500" min="10" style="width:100%">
+    </div>
+
+    <div class="sidebar-section">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+        <input id="smUseLlm" type="checkbox" checked style="accent-color:var(--green)">
+        Use LLM fallback (requires ollama)
+      </label>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">
+        Falls back to local ollama to find selectors for any field inference misses.
+        Set <code>OLLAMA_MODEL</code> env var to choose model (default: llama3.2:3b).
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <label class="sidebar-label">Concurrency</label>
+      <input id="smConcurrency" class="input" type="number" value="6" min="1" max="20" style="width:100%">
+    </div>
+
+    <button id="smBtn" class="btn btn-primary" onclick="runSmart()" style="width:100%;margin-top:8px">
+      <i class="ti ti-brain"></i> Start Smart Extract
+    </button>
+
+    <div style="margin-top:12px;display:flex;gap:6px">
+      <button class="btn" onclick="smExport()" id="smExportBtn" disabled style="flex:1">
+        <i class="ti ti-download"></i> Export CSV
+      </button>
+    </div>
+
+    <!-- Selector map panel — populated after Phase 2 -->
+    <div id="smSelectorPanel" style="display:none;margin-top:16px">
+      <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">
+        Discovered selectors yo
+      </div>
+      <div id="smSelectorList" style="display:flex;flex-direction:column;gap:4px;font-size:11px"></div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main" style="display:flex;flex-direction:column;gap:0;padding:0;overflow:hidden">
+
+    <!-- Phase timeline -->
+    <div style="padding:10px 20px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;flex-shrink:0;overflow-x:auto">
+      <div id="sm-ph1" class="sm-phase">
+        <span class="sm-phase-dot"></span>
+        <span>1 · Mapping</span>
+      </div>
+      <div style="width:24px;height:1px;background:var(--border);flex-shrink:0"></div>
+      <div id="sm-ph2" class="sm-phase">
+        <span class="sm-phase-dot"></span>
+        <span>2 · Selectors</span>
+      </div>
+      <div style="width:24px;height:1px;background:var(--border);flex-shrink:0"></div>
+      <div id="sm-ph3" class="sm-phase">
+        <span class="sm-phase-dot"></span>
+        <span>3 · LLM</span>
+      </div>
+      <div style="width:24px;height:1px;background:var(--border);flex-shrink:0"></div>
+      <div id="sm-ph4" class="sm-phase">
+        <span class="sm-phase-dot"></span>
+        <span>4 · Extract</span>
+      </div>
+      <div style="flex:1"></div>
+      <div id="smStatusMsg" style="font-size:12px;color:var(--text2);white-space:nowrap">Ready</div>
+      <div style="font-size:12px;color:var(--text3)" id="sm-timer">0s</div>
+    </div>
+
+    <!-- Progress bar -->
+    <div style="height:3px;background:var(--surface2);flex-shrink:0">
+      <div id="smProgressBar" style="height:100%;width:0%;background:var(--green);transition:width 0.4s"></div>
+    </div>
+
+    <!-- Stats row -->
+    <div style="padding:8px 20px;background:var(--surface2);border-bottom:1px solid var(--border);display:flex;gap:24px;font-size:12px;color:var(--text2);flex-shrink:0">
+      <span>Pages mapped: <b id="sm-mapped">0</b></span>
+      <span>Product URLs: <b id="sm-prod-urls">0</b></span>
+      <span>Patterns: <b id="sm-patterns">0</b></span>
+      <span>Products extracted: <b id="sm-extracted" style="color:var(--green)">0</b></span>
+    </div>
+
+    <!-- Results table -->
+    <div style="flex:1;overflow:auto;min-height:0">
+      <table class="results-table" style="min-width:900px">
+        <thead>
+          <tr>
+            <th style="width:200px">Name</th>
+            <th>Price</th>
+            <th>SKU</th>
+            <th>Brand</th>
+            <th>Availability</th>
+            <th>Rating</th>
+            <th>Category</th>
+            <th>Description</th>
+            <th>Source</th>
+          </tr>
+        </thead>
+        <tbody id="smResultsBody">
+          <tr><td colspan="9">
+            <div class="empty-state">
+              <i class="ti ti-brain"></i>
+              <p>Enter a URL and click Start Smart Extract.</p>
+            </div>
+          </td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </main>
+</div>
+</div><!-- /page-smart -->
+
+<style>
+.sm-phase {
+  display:flex; align-items:center; gap:6px;
+  font-size:12px; color:var(--text3); white-space:nowrap;
+}
+.sm-phase-dot {
+  width:8px; height:8px; border-radius:50%;
+  background:var(--text3); flex-shrink:0; transition:background .3s;
+}
+.sm-phase.active   .sm-phase-dot { background:var(--amber-text); animation:pulse 1.2s infinite; }
+.sm-phase.active   { color:var(--text); }
+.sm-phase.done     .sm-phase-dot { background:var(--green); animation:none; }
+.sm-phase.done     { color:var(--green-text); }
+</style>
 
 
 <script>
@@ -1257,7 +1380,9 @@ function handleFile(file) {
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
-      complete: res => parseProducts(res.data, file.name),
+      complete: res => parseProducts(res.data, file.name).catch(err => {
+        info.textContent = 'Error parsing: ' + err.message;
+      }),
       error: err => { info.textContent = 'Error: ' + err.message; }
     });
   } else if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
@@ -1267,7 +1392,9 @@ function handleFile(file) {
         const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
         const sheet = wb.Sheets[wb.SheetNames[0]];
         const data = XLSX.utils.sheet_to_json(sheet);
-        parseProducts(data, file.name);
+        parseProducts(data, file.name).catch(err => {
+          info.textContent = 'Error parsing: ' + err.message;
+        });
       } catch(err) { info.textContent = 'Error reading Excel: ' + err.message; }
     };
     reader.readAsArrayBuffer(file);
@@ -1276,30 +1403,114 @@ function handleFile(file) {
   }
 }
 
-function parseProducts(rows, filename) {
-  sProducts = rows.map(row => {
-    const r = {};
-    for (const [k, v] of Object.entries(row)) r[k.toLowerCase().trim()] = (v ?? '').toString().trim();
+// ── Fuzzy column finder ───────────────────────────────────────────────────────
+// Given a flat row object (keys = column headers) and a list of candidate
+// keywords, return the value of the first column whose name contains any
+// of those keywords (case-insensitive). Falls back to empty string.
+function _col(r, ...keywords) {
+  for (const kw of keywords) {
+    for (const k of Object.keys(r)) {
+      if (k.toLowerCase().includes(kw.toLowerCase())) return (r[k] ?? '').toString().trim();
+    }
+  }
+  return '';
+}
 
-    const title = r['title'] || r['name'] || '';
+// Given a neural-net field→colName mapping, pick the right column value.
+// Falls back to fuzzy keyword search when the NN didn't map this field.
+function _mapped(r, mapping, field, ...fallbackKeywords) {
+  const colName = mapping[field];
+  if (colName && r[colName] !== undefined) return (r[colName] ?? '').toString().trim();
+  return _col(r, ...fallbackKeywords);
+}
+
+async function parseProducts(rows, filename) {
+  const info = document.getElementById('fileInfo');
+  if (!rows.length) {
+    info.textContent = `${filename} — no rows found`;
+    return;
+  }
+
+  // ── Step 1: Ask the neural net which column is which ──────────────────────
+  info.textContent = `${filename} — analysing columns…`;
+  let nnMapping = {};  // { fieldName: "ColName" }  (field → best column)
+  try {
+    const cols = {};
+    Object.keys(rows[0]).forEach(col => {
+      cols[col] = rows.slice(0, 6).map(r => String(r[col] ?? ''));
+    });
+    const res = await fetch(`${API}/api/scraper/map-columns`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ columns: cols }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      // data.mapping = { "ColName": "fieldLabel", … }
+      // Invert: fieldLabel → ColName  (keep first/best match per field)
+      const raw = data.mapping || {};
+      for (const [colName, field] of Object.entries(raw)) {
+        if (field !== 'irrelevant' && !nnMapping[field]) {
+          nnMapping[field] = colName;
+        }
+      }
+      console.log('[NN column mapping]', nnMapping);
+    }
+  } catch(e) { /* neural net unavailable — fall back to fuzzy matching */ }
+
+  // ── Step 2: Build product list using NN mapping + fuzzy fallbacks ─────────
+  sProducts = rows.map(row => {
+    // Normalise: keep original keys for NN mapping, also available as-is
+    const r = {};
+    for (const [k, v] of Object.entries(row)) r[k] = (v ?? '').toString().trim();
+
+    // Name / Title
+    const title =
+      _mapped(r, nnMapping, 'name',
+        'title', 'name', 'product', 'article', 'libellé', 'désignation',
+        'produit', 'intitulé', 'item', 'description courte', 'nom');
     if (!title) return null;
 
-    const sku = r['variant sku'] || r['sku'] || '';
-    const vendor = r['vendor'] || r['brand'] || '';
-    const barcode = r['variant barcode'] || r['barcode'] || '';
-    const product_type = r['type'] || r['product type'] || '';
-    const status = (r['status'] || '').toLowerCase();
-    const your_qty = parseInt(r['total inventory qty'] || r['variant inventory qty'] || r['qty'] || '0') || 0;
-    const price_raw = r['variant price'] || r['price'] || '';
-    const your_price = price_raw !== '' ? (parseFloat(price_raw.replace(',','.')) || null) : null;
+    // SKU / Reference
+    const sku =
+      _mapped(r, nnMapping, 'sku',
+        'sku', 'ref', 'référence', 'reference', 'barcode', 'ean', 'upc',
+        'code', 'model', 'part', 'variant sku', 'article');
+
+    // Brand / Vendor
+    const vendor =
+      _mapped(r, nnMapping, 'brand',
+        'vendor', 'brand', 'marque', 'fabricant', 'manufacturer', 'make');
+
+    // Your price
+    const price_raw =
+      _mapped(r, nnMapping, 'price',
+        'variant price', 'price', 'prix', 'tarif', 'cost', 'amount',
+        'selling price', 'sale price', 'unit price');
+    const your_price = price_raw
+      ? (parseFloat(price_raw.replace(/[^\d.,]/g, '').replace(',', '.')) || null)
+      : null;
+
+    // Quantity
+    const qty_raw =
+      _col(r, 'total inventory qty', 'variant inventory qty', 'qty', 'quantity',
+           'stock', 'quantité', 'disponible');
+    const your_qty = parseInt(qty_raw) || 0;
+
+    // Status
+    const status = _col(r, 'status', 'statut', 'état').toLowerCase();
+
+    // Extras
+    const barcode      = _col(r, 'barcode', 'ean', 'upc');
+    const product_type = _col(r, 'type', 'product type', 'catégorie', 'category', 'famille');
 
     return { title, sku, vendor, barcode, product_type, status, your_price, your_qty };
   }).filter(Boolean);
 
   sScrapeResults = {};
 
-  const info = document.getElementById('fileInfo');
-  info.textContent = `${filename} — ${sProducts.length} products loaded`;
+  const mappedFields = Object.keys(nnMapping).join(', ') || 'none (fuzzy fallback used)';
+  info.textContent = `${filename} — ${sProducts.length} products  (NN mapped: ${mappedFields})`;
   document.getElementById('sm-loaded').textContent = sProducts.length;
   document.getElementById('sm-done').textContent = '0';
   document.getElementById('sm-missing').textContent = '0';
@@ -2044,6 +2255,213 @@ function crawlExport(fmt) {
     ].join('\n');
     download(csv, 'crawled_products.csv', 'text/csv');
   }
+}
+
+// ══════════════════════════════════
+//  SMART EXTRACT
+// ══════════════════════════════════
+
+let smProducts = [];
+let smEventSource = null;
+let smTimer = null;
+let smSeconds = 0;
+
+const SM_PHASES = ['mapping','inferring','llm','extracting'];
+
+function smSetPhase(active) {
+  SM_PHASES.forEach(function(p, idx) {
+    const el = document.getElementById('sm-ph' + (idx + 1));
+    if (!el) return;
+    el.classList.remove('active', 'done');
+    const activeIdx = SM_PHASES.indexOf(active);
+    if (idx < activeIdx)  el.classList.add('done');
+    if (idx === activeIdx) el.classList.add('active');
+  });
+}
+
+function smStatus(msg) {
+  const el = document.getElementById('smStatusMsg');
+  if (el) el.textContent = msg;
+}w
+
+function smRenderSelector(field, entry) {
+  const panel = document.getElementById('smSelectorPanel');
+  const list  = document.getElementById('smSelectorList');
+  if (!panel || !list) return;
+  panel.style.display = '';
+  const conf  = entry ? Math.round((entry.confidence || 0) * 100) : 0;
+  const color = conf >= 80 ? 'var(--green)' : conf >= 60 ? 'var(--amber-text)' : 'var(--red-text)';
+  const src   = entry && entry.source ? ' [' + entry.source + ']' : '';
+  const selTxt = entry && entry.selector ? entry.selector + src : 'not found';
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid var(--border)';
+  row.innerHTML = '<span style="color:var(--text2);min-width:80px">' + field + '</span>'
+    + '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;font-family:monospace">' + selTxt + '</span>'
+    + '<span style="color:' + color + ';font-weight:600">' + conf + '%</span>';
+  list.appendChild(row);
+}
+
+function smAppendProduct(product) {
+  const tbody = document.getElementById('smResultsBody');
+  if (!tbody) return;
+  if (smProducts.length === 1) tbody.innerHTML = '';
+  const avail = product.availability || '';
+  const ac = avail.toLowerCase().includes('in') ? 'var(--green)'
+           : avail.toLowerCase().includes('out') ? 'var(--red-text)' : 'var(--text3)';
+  const host = (function() { try { return new URL(product.url).hostname.replace('www.',''); } catch(e) { return ''; } })();
+  const price = product.price ? '<b style="color:var(--green)">' + product.price + '</b>' : '<span style="color:var(--text3)">—</span>';
+  const descSnip = product.description ? product.description.slice(0,55) + '…' : '';
+  const desc = descSnip ? '<span>' + descSnip + '</span>' : '<span style="color:var(--text3)">—</span>';
+  const tr = document.createElement('tr');
+  tr.innerHTML =
+    '<td style="font-weight:500;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (product.name||'—') + '</td>' +
+    '<td>' + price + '</td>' +
+    '<td style="font-family:monospace;font-size:11px">' + (product.sku||'—') + '</td>' +
+    '<td>' + (product.brand||'—') + '</td>' +
+    '<td><span style="color:' + ac + '">' + (avail||'—') + '</span></td>' +
+    '<td>' + (product.rating||'—') + '</td>' +
+    '<td>' + (product.category||'—') + '</td>' +
+    '<td>' + desc + '</td>' +
+    '<td><a href="' + product.url + '" target="_blank" rel="noopener" style="font-size:11px">' + host + '</a></td>';
+  tbody.appendChild(tr);
+}
+
+async function runSmart() {
+  const url = document.getElementById('smUrl').value.trim();
+  if (!url) { alert('Enter a URL.'); return; }
+
+  smProducts = [];
+  const tbody = document.getElementById('smResultsBody');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--text3)">Running pipeline…</td></tr>';
+
+  const selectorList  = document.getElementById('smSelectorList');
+  const selectorPanel = document.getElementById('smSelectorPanel');
+  if (selectorList)  selectorList.innerHTML = '';
+  if (selectorPanel) selectorPanel.style.display = 'none';
+
+  const bar = document.getElementById('smProgressBar');
+  if (bar) bar.style.width = '0%';
+  ['sm-mapped','sm-prod-urls','sm-patterns','sm-extracted'].forEach(function(id) {
+    const el = document.getElementById(id); if (el) el.textContent = '0';
+  });
+
+  const exportBtn = document.getElementById('smExportBtn');
+  const startBtn  = document.getElementById('smBtn');
+  if (exportBtn) exportBtn.disabled = true;
+  if (startBtn)  startBtn.disabled  = true;
+
+  if (smEventSource) { smEventSource.close(); smEventSource = null; }
+  clearInterval(smTimer);
+  smSeconds = 0;
+  smTimer = setInterval(function() {
+    smSeconds++;
+    const t = document.getElementById('sm-timer'); if (t) t.textContent = smSeconds + 's';
+  }, 1000);
+
+  smSetPhase('mapping');
+  smStatus('Starting…');
+
+  try {
+    const res = await fetch(API + '/api/smart/jobs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url:          url,
+        max_pages:    parseInt((document.getElementById('smMaxPages')||{}).value)||200,
+        sample_size:  parseInt((document.getElementById('smSample')||{}).value)||10,
+        max_products: parseInt((document.getElementById('smMaxProducts')||{}).value)||500,
+        use_llm:      (document.getElementById('smUseLlm')||{checked:true}).checked,
+        concurrency:  parseInt((document.getElementById('smConcurrency')||{}).value)||6,
+      }),
+    });
+    const data = await res.json();
+    const job_id = data.job_id;
+    smEventSource = new EventSource(API + '/api/smart/jobs/' + job_id + '/stream');
+
+    smEventSource.onmessage = function(e) {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'stream_end') { smEventSource.close(); return; }
+
+      if (msg.type === 'phase') {
+        smSetPhase(msg.phase);
+        smStatus(msg.msg || '');
+        const pctMap = { mapping:15, inferring:40, llm:60, extracting:70 };
+        if (bar) bar.style.width = (pctMap[msg.phase]||0) + '%';
+      }
+      if (msg.type === 'mapping_progress') {
+        const ms = document.getElementById('sm-mapped');
+        const pu = document.getElementById('sm-prod-urls');
+        if (ms) ms.textContent = msg.scanned||0;
+        if (pu) pu.textContent = msg.products||0;
+      }
+      if (msg.type === 'mapping_done') {
+        const ms=document.getElementById('sm-mapped'), pu=document.getElementById('sm-prod-urls'), pat=document.getElementById('sm-patterns');
+        if (ms)  ms.textContent  = (msg.stats&&msg.stats.total_pages)||0;
+        if (pu)  pu.textContent  = msg.product_urls||0;
+        if (pat) pat.textContent = (msg.patterns||[]).length;
+      }
+      if (msg.type === 'selectors_found') {
+        if (selectorList) selectorList.innerHTML = '';
+        ['price','name','sku','availability','brand','rating','description'].forEach(function(f) {
+          smRenderSelector(f, msg.selector_map&&msg.selector_map[f]);
+        });
+      }
+      if (msg.type === 'llm_done' && msg.added) {
+        Object.entries(msg.added).forEach(function(kv) {
+          smRenderSelector(kv[0], { selector: kv[1], confidence: 0.6, source: 'llm' });
+        });
+      }
+      if (msg.type === 'product') {
+        smProducts.push(msg.data);
+        smAppendProduct(msg.data);
+        const ex = document.getElementById('sm-extracted');
+        if (ex) ex.textContent = smProducts.length;
+        if (exportBtn) exportBtn.disabled = false;
+        if (bar) { const pct = 70+Math.round((smProducts.length/(msg.total||1))*30); bar.style.width = Math.min(pct,99)+'%'; }
+      }
+      if (msg.type === 'done') {
+        clearInterval(smTimer);
+        if (bar) bar.style.width = '100%';
+        if (startBtn) startBtn.disabled = false;
+        SM_PHASES.forEach(function(_,i){ const el=document.getElementById('sm-ph'+(i+1)); if(el){el.classList.remove('active');el.classList.add('done');} });
+        smStatus('Done — ' + smProducts.length + ' products in ' + msg.elapsed + 's');
+        smEventSource.close();
+      }
+      if (msg.type === 'error') {
+        clearInterval(smTimer);
+        smStatus('Error: ' + msg.msg);
+        if (startBtn) startBtn.disabled = false;
+        smEventSource.close();
+      }
+    };
+
+    smEventSource.onerror = function() {
+      clearInterval(smTimer);
+      smStatus('Stream lost — check server.');
+      if (startBtn) startBtn.disabled = false;
+      smEventSource.close();
+    };
+
+  } catch(err) {
+    clearInterval(smTimer);
+    smStatus('Error: ' + err.message);
+    if (startBtn) startBtn.disabled = false;
+  }
+}
+
+function smExport() {
+  if (!smProducts.length) { alert('No products to export.'); return; }
+  const fields = ['name','price','sku','brand','availability','rating','description','category','url','images'];
+  const csv = [
+    fields.join(','),
+    ...smProducts.map(function(p) {
+      return fields.map(function(k) {
+        const v = k === 'images' ? (p.images||[]).join('|') : (p[k]!=null?p[k]:'');
+        return '"' + String(v).replace(/"/g,'""') + '"';
+      }).join(',');
+    })
+  ].join('\n');
+  download(csv, 'smart_products.csv', 'text/csv');
 }
 
 </script>

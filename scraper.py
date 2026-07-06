@@ -5,6 +5,7 @@ extracts competitor pricing and stock, streams results back.
 """
 import asyncio
 import json
+import logging
 import re
 import uuid
 from datetime import datetime
@@ -20,6 +21,38 @@ from pydantic import BaseModel
 router = APIRouter(prefix="/api/scraper")
 scrape_jobs: dict = {}
 
+log = logging.getLogger("scraper")
+
+# ANSI colours for terminal readability
+_C = {
+    "reset": "\033[0m",  "bold": "\033[1m",
+    "green": "\033[92m", "red":   "\033[91m",
+    "yellow":"\033[93m", "cyan":  "\033[96m",
+    "grey":  "\033[90m", "blue":  "\033[94m",
+}
+
+def _t(msg: str, colour: str = "reset") -> str:
+    return f"{_C.get(colour,'')}{msg}{_C['reset']}"
+
+def _log_scrape(label: str, url: str, result: dict):
+    price = result.get("found_price")
+    avail = result.get("found_availability", "?")
+    name  = result.get("page_name", "")
+    tier  = result.get("tier", "")
+    if price:
+        print(
+            f"  {_t('✔', 'green')} {_t(label,'bold')} | "
+            f"price={_t(price,'green')} | avail={avail}"
+            + (f" | tier={tier}" if tier else "")
+            + (f"\n    name : {name}" if name else "")
+            + f"\n    url  : {_t(url,'grey')}"
+        )
+    else:
+        print(
+            f"  {_t('✘', 'red')} {_t(label,'bold')} | no price | avail={avail}"
+            + f"\n    url  : {_t(url,'grey')}"
+        )
+
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -30,13 +63,13 @@ HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 
-# Only match prices that have explicit currency markers OR proper decimal format (e.g. 12.99 / 1,299.99)
-# No bare integers — that was causing random numbers to be picked up as prices.
+# PRICE_RE: only match strings that have an EXPLICIT currency marker.
+# No bare decimals — "12.99" alone matches version numbers, coordinates, etc.
+# Every branch here requires a currency symbol or code word.
 PRICE_RE = re.compile(
-    r'(?:[\$€£¥₹₩]\s*\d[\d\s,]*\.?\d{0,2})'           # $12.99  €1 299
-    r'|(?:\d[\d\s,]*\.?\d{0,2}\s*(?:€|EUR|USD|GBP|DZD|MAD|TND|DA|DH|دج))'  # 12.99€  1299 DA
-    r'|(?:\d{1,3}(?:[,\s]\d{3})+(?:\.\d{1,2})?)'        # 1,299.99  1 299.99
-    r'|(?:\d+\.\d{2})',                                   # 12.99 — decimal prices only
+    r'(?:[\$€£¥₹₩]\s*\d[\d\s,]*\.?\d{0,2})'                              # $12.99  €1 299
+    r'|(?:\d[\d\s,]*(?:\.\d{1,2})?\s*(?:€|EUR|USD|GBP|DZD|MAD|TND|DA|DH|DHS|درهم|دج))',  # 12.99€  1299 DA
+    re.IGNORECASE,
 )
 
 # Words that disqualify a number from being a price (found nearby in text)
@@ -278,8 +311,42 @@ def _extract_from_schema_itemprop(soup: BeautifulSoup) -> Optional[str]:
     return None
 
 
+def _extract_from_visible_blocks(soup: BeautifulSoup) -> Optional[str]:
+    """
+    Tier 5 (broad): scan every short text node on the page.
+    Accept a price only when it appears within 3 siblings of a buy/price signal word.
+    This catches sites that don't use standard classes or structured data.
+    """
+    _BUY_RE = re.compile(
+        r'(price|prix|cost|tarif|buy|achet|panier|cart|commander|add to|ajouter|'
+        r'disponible|stock|checkout|total|amount|montant)',
+        re.IGNORECASE,
+    )
+
+    def _short_text(node) -> str:
+        t = node.get_text(" ", strip=True)
+        return t if len(t) < 120 else ""
+
+    for parent in soup.find_all(True):
+        children = [c for c in parent.children if hasattr(c, "get_text")]
+        for i, child in enumerate(children):
+            txt = _short_text(child)
+            if not txt or not PRICE_RE.search(txt):
+                continue
+            # Check surrounding siblings for a buy/price signal
+            window = children[max(0, i-3): i+4]
+            context = " ".join(_short_text(c) for c in window)
+            if _BUY_RE.search(context):
+                p = _extract_price_from_text(txt)
+                if p:
+                    val = _parse_price_value(p)
+                    if val is not None:
+                        return p
+    return None
+
+
 def _extract_from_css_classes(soup: BeautifulSoup) -> Optional[str]:
-    """Try common price CSS class patterns, with validation."""
+    #Try common price CSS class patterns, with validation.
     selectors = [
         '[class*="sale-price"]', '[class*="sale_price"]',
         '[class*="product-price"]', '[class*="product_price"]',
@@ -305,7 +372,6 @@ def _extract_from_css_classes(soup: BeautifulSoup) -> Optional[str]:
                 if val is not None:
                     return p
     return None
-
 
 def _extract_page_product_name(soup: BeautifulSoup) -> str:
     """Best-effort extraction of the product name shown on a page."""
@@ -345,7 +411,7 @@ def _extract_page_product_name(soup: BeautifulSoup) -> str:
     return h1.get_text(strip=True) if h1 else ""
 
 
-def _name_matches(page_name: str, expected_title: str, threshold: float = 0.35) -> bool:
+def _name_matches(page_name: str, expected_title: str, threshold: float = 0.20) -> bool:
     """
     Return True if page_name is a plausible match for expected_title.
 
@@ -377,9 +443,11 @@ def _name_matches(page_name: str, expected_title: str, threshold: float = 0.35) 
 
 def _scrape_page_for_price(url: str) -> dict:
     """Fetch a URL and extract price, availability and product name."""
+    print(f"  {_t('→ fetching','cyan')} {_t(url,'grey')}")
     try:
         resp = requests.get(url, headers=HEADERS, timeout=14)
         if resp.status_code >= 400:
+            print(f"  {_t('✘','red')} HTTP {resp.status_code} — {url}")
             return {"found_price": None, "found_availability": "Error", "page_name": ""}
 
         soup = BeautifulSoup(resp.text, "lxml")
@@ -388,49 +456,86 @@ def _scrape_page_for_price(url: str) -> dict:
 
         # Tier 1: JSON-LD structured data (most reliable)
         found_price = _extract_from_jsonld(soup)
+        tier_label = "json-ld" if found_price else None
 
         # Tier 2: Open Graph / meta price tags
         if not found_price:
             found_price = _extract_from_meta(soup)
+            if found_price: tier_label = "meta"
 
         # Tier 3: itemprop="price"
         if not found_price:
             found_price = _extract_from_schema_itemprop(soup)
+            if found_price: tier_label = "itemprop"
 
         # Tier 4: CSS class heuristics
         if not found_price:
             found_price = _extract_from_css_classes(soup)
+            if found_price: tier_label = "css-class"
 
-        # Tier 5: Regex on the first 80k chars — currency-anchored only
+        # Visible text — used for SKU check and the last-resort regex tiers
+        page_text = soup.get_text(" ", strip=True)
+
+        # Tier 5: Visible block context scan (near buy/price keywords)
         if not found_price:
-            currency_re = re.compile(
-                r'(?:[\$€£¥₹₩]\s*\d[\d\s,]*\.?\d{0,2})'
-                r'|(?:\d[\d\s,]*\.?\d{0,2}\s*(?:€|EUR|USD|GBP|DZD|MAD|TND|DA|DH))',
-            )
-            m = currency_re.search(resp.text[:80_000])
+            found_price = _extract_from_visible_blocks(soup)
+            if found_price: tier_label = "visible-block"
+
+        # Tier 6: PRICE_RE scan on VISIBLE TEXT ONLY (not raw HTML).
+        # Scanning raw HTML hits CSS values, JS strings, version numbers, etc.
+        if not found_price:
+            m = PRICE_RE.search(page_text)
             if m:
                 val = _parse_price_value(m.group())
-                if val is not None:
+                if val is not None and 0.5 <= val <= 999_999:
                     found_price = m.group().strip()
+                    tier_label = "text-regex"
 
-        # Availability detection
+        if not tier_label:
+            tier_label = "none"
+
+        # Availability detection (on raw HTML — these are usually in meta/JS tags)
         pg = resp.text.lower()
         found_availability = "Unknown"
         if any(x in pg for x in ["instock", "in stock", "en stock", "disponible",
-                                  "in-stock", "available", "add to cart", "buy now"]):
+                                  "in-stock", "available", "add to cart", "buy now",
+                                  "ajouter au panier", "commander"]):
             found_availability = "In Stock"
         elif any(x in pg for x in ["outofstock", "out of stock", "out-of-stock",
-                                    "rupture", "épuisé", "unavailable", "sold out"]):
+                                    "rupture", "épuisé", "unavailable", "sold out",
+                                    "indisponible"]):
             found_availability = "Out of Stock"
         elif any(x in pg for x in ["limited stock", "low stock", "hurry", "only"]):
             found_availability = "Low Stock"
 
-        # Visible text — used for SKU presence check
-        page_text = soup.get_text(" ", strip=True)
+        # ── Neural net scan on candidate leaf nodes ────────────────────────
+        # Collect short text snippets from leaf nodes and classify them.
+        # This runs alongside the rule-based tiers so you can see in the
+        # terminal which text the neural net identifies for each field.
+        # Neural net scan — fire-and-forget, doesn't affect return value
+        try:
+            from neural_net import get_net
+            candidates = [
+                {"text": node.get_text(" ", strip=True), "selector": node.name}
+                for node in soup.find_all(True)
+                if len(node.find_all()) == 0 and 1 < len(node.get_text(strip=True)) < 200
+            ]
+            if candidates:
+                get_net().predict_page_fields(candidates[:60], verbose=True)
+        except Exception:
+            pass
 
-        return {"found_price": found_price, "found_availability": found_availability,
-                "page_name": page_name, "page_text": page_text}
-    except Exception:
+        result = {
+            "found_price":        found_price,
+            "found_availability": found_availability,
+            "page_name":          page_name,
+            "page_text":          page_text,
+            "tier":               tier_label,
+        }
+        _log_scrape("page", url, result)
+        return result
+    except Exception as exc:
+        print(f"  {_t('✘','red')} exception fetching {url}: {exc}")
         return {"found_price": None, "found_availability": "Error",
                 "page_name": "", "page_text": ""}
 
@@ -445,97 +550,100 @@ def _normalize_domain(url: str) -> str:
 
 
 async def _search_site_for_product(query: str, domain: str, engine: str,
-                                   max_results: int = 64) -> list:
-    """Search exclusively within a specific domain using site: operator."""
+                                   max_results: int = 20) -> list:
+    """Search within a specific domain using site: operator, DDG + Bing in parallel."""
     site_query = f'site:{domain} {query}'
-    results = []
+    print(f"  {_t('site-search','grey')} domain={domain} query={_t(repr(query),'yellow')}")
 
-    if engine in ("duckduckgo", "all"):
-        from ddgs import DDGS
-        def _ddg_site():
-            out = []
-            try:
-                for r in DDGS().text(site_query, max_results=max_results):
-                    href = r.get("href", "")
-                    if href.startswith("http") and domain in href:
-                        out.append({"url": href,
-                                    "snippet": r.get("body", "") + " " + r.get("title", ""),
-                                    "title": r.get("title", "")})
-            except Exception:
-                pass
-            return out
-        results = await asyncio.to_thread(_ddg_site)
+    ddg_task  = asyncio.to_thread(_ddg_search,  site_query, max_results)
+    bing_task = asyncio.to_thread(_bing_search, site_query, max_results)
+    all_batches = await asyncio.gather(ddg_task, bing_task, return_exceptions=True)
 
-    if not results:
-        try:
-            resp = await asyncio.to_thread(
-                lambda: requests.get(
-                    "https://www.bing.com/search",
-                    params={"q": site_query, "count": max_results},
-                    headers=HEADERS, timeout=20,
-                )
-            )
-            soup = BeautifulSoup(resp.text, "lxml")
-            for li in soup.select("li.b_algo")[:max_results]:
-                a = li.select_one("h2 a")
-                cap = li.select_one(".b_caption p")
-                if a:
-                    href = a.get("href", "")
-                    if domain in href:
-                        results.append({
-                            "url": href,
-                            "snippet": cap.get_text() if cap else "",
-                            "title": a.get_text(),
-                        })
-        except Exception:
-            pass
+    seen: set = set()
+    results: list = []
+    for batch in all_batches:
+        if isinstance(batch, Exception) or not batch:
+            continue
+        for r in batch:
+            u = r.get("url", "")
+            if u and domain in u and u not in seen:
+                seen.add(u)
+                results.append(r)
 
+    print(f"  {_t('→','grey')} {len(results)} site-restricted results")
     return results
 
 
-async def _search_urls(query: str, engine: str, max_results: int) -> list:
-    """Return result dicts from a search engine (open web, no site restriction)."""
-    results = []
-
-    if engine in ("duckduckgo", "all"):
+def _ddg_search(query: str, max_results: int = 20) -> list:
+    """Blocking DuckDuckGo search — run inside asyncio.to_thread."""
+    try:
         from ddgs import DDGS
-        def _ddg_web():
-            out = []
-            try:
-                for r in DDGS().text(query, max_results=30):
-                    href = r.get("href", "")
-                    if href.startswith("http"):
-                        out.append({"url": href,
-                                    "snippet": r.get("body", "") + " " + r.get("title", ""),
-                                    "title": r.get("title", "")})
-            except Exception:
-                pass
-            return out
-        results = await asyncio.to_thread(_ddg_web)
+        out = []
+        for r in DDGS().text(query, max_results=max_results):
+            href = r.get("href", "")
+            if href.startswith("http"):
+                out.append({"url": href,
+                            "snippet": r.get("body", "") + " " + r.get("title", ""),
+                            "title": r.get("title", "")})
+        return out
+    except Exception:
+        return []
 
-    if not results and engine in ("bing", "all"):
-        try:
-            resp = await asyncio.to_thread(
-                lambda: requests.get(
-                    "https://www.bing.com/search",
-                    params={"q": query, "count": max_results},
-                    headers=HEADERS, timeout=20,
-                )
-            )
-            soup = BeautifulSoup(resp.text, "lxml")
-            for li in soup.select("li.b_algo")[:max_results]:
-                a = li.select_one("h2 a")
-                cap = li.select_one(".b_caption p")
-                if a:
-                    results.append({
-                        "url": a.get("href", ""),
-                        "snippet": cap.get_text() if cap else "",
-                        "title": a.get_text(),
-                    })
-        except Exception:
-            pass
 
-    return results
+def _bing_search(query: str, max_results: int = 20) -> list:
+    """Blocking Bing search — run inside asyncio.to_thread."""
+    try:
+        resp = requests.get(
+            "https://www.bing.com/search",
+            params={"q": query, "count": max_results},
+            headers=HEADERS, timeout=20,
+        )
+        soup = BeautifulSoup(resp.text, "lxml")
+        out = []
+        for li in soup.select("li.b_algo")[:max_results]:
+            a   = li.select_one("h2 a")
+            cap = li.select_one(".b_caption p")
+            if a and a.get("href", "").startswith("http"):
+                out.append({
+                    "url":     a["href"],
+                    "snippet": cap.get_text() if cap else "",
+                    "title":   a.get_text(),
+                })
+        return out
+    except Exception:
+        return []
+
+
+async def _search_urls(query: str, engine: str, max_results: int = 20) -> list:
+    """
+    Run DDG and Bing IN PARALLEL, merge, deduplicate.
+    Both always run — whichever returns first is not awaited by the other.
+    """
+    print(f"  {_t('search','grey')} query={_t(repr(query),'yellow')}")
+
+    tasks = []
+    if engine in ("duckduckgo", "all", "bing"):
+        tasks.append(asyncio.to_thread(_ddg_search, query, max_results))
+        tasks.append(asyncio.to_thread(_bing_search, query, max_results))
+    else:
+        tasks.append(asyncio.to_thread(_ddg_search, query, max_results))
+        tasks.append(asyncio.to_thread(_bing_search, query, max_results))
+
+    all_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    seen_urls: set = set()
+    merged: list = []
+    for batch in all_results:
+        if isinstance(batch, Exception) or not batch:
+            continue
+        for r in batch:
+            u = r.get("url", "")
+            if u and u not in seen_urls:
+                seen_urls.add(u)
+                merged.append(r)
+
+    print(f"  {_t('→','grey')} {len(merged)} unique URLs from search")
+    return merged
 
 
 async def _scrape_and_verify(url: str, domain_lock: str = "",
@@ -572,7 +680,8 @@ async def _scrape_and_verify(url: str, domain_lock: str = "",
 
 
 async def _find_price_for_product(product: Product, engine: str,
-                                   target_url: Optional[str] = None) -> dict:
+                                   target_url: Optional[str] = None,
+                                   used_urls: Optional[set] = None) -> dict:
     """
     Search and verify strategy:
 
@@ -584,76 +693,165 @@ async def _find_price_for_product(product: Product, engine: str,
     If target_url is set, every query is restricted to site:<domain> and
     only URLs on that domain are ever scraped.
     """
-    has_sku  = bool(product.sku and product.sku.strip())
-    has_name = bool(product.title and product.title.strip())
-    domain   = _normalize_domain(target_url) if target_url else ""
+    has_sku   = bool(product.sku and product.sku.strip())
+    has_name  = bool(product.title and product.title.strip())
+    domain    = _normalize_domain(target_url) if target_url else ""
+    used_urls = used_urls if used_urls is not None else set()  # URLs already claimed by earlier products
+
+    print(
+        f"\n{_t('━'*60,'grey')}\n"
+        f"{_t('PRODUCT','bold')} {_t(product.title or '(no title)','cyan')}"
+        + (f"  SKU={_t(product.sku,'yellow')}" if has_sku else "")
+        + (f"  domain={domain}" if domain else "")
+        + f"\n{_t('engine','grey')}={engine}"
+    )
 
     NOT_FOUND = {"found_price": None, "found_availability": "Not found",
                  "found_url": "", "found_source": "", "page_name": ""}
 
+    # _SKIP: domains that never have product pages with scrapeable prices
+    _SKIP_DOMAINS = {"google.", "bing.", "yahoo.", "youtube.", "facebook.",
+                     "instagram.", "twitter.", "tiktok.", "wikipedia.",
+                     "reddit.", "linkedin.", "pinterest."}
+
+    # Buy-signal words — at least one must appear on the page for us to trust the price
+    _BUY_SIGNALS = re.compile(
+        r'add.?to.?cart|buy.?now|ajouter.?au.?panier|commander|checkout|'
+        r'add.?to.?bag|acheter|in.?stock|en.?stock|disponible|livraison',
+        re.IGNORECASE,
+    )
+
     async def _try(results: list, verify_title: str = "", verify_sku: str = "",
-                   limit: int = 6) -> Optional[dict]:
-        """Visit each result URL, apply verification, return first valid hit."""
+                   limit: int = 12) -> Optional[dict]:
+        """
+        Visit up to `limit` URLs from search results.
+        Rules:
+        - Page must have at least one buy/cart signal (proves it's a product page)
+        - SKU check: SKU must appear in visible text (case-insensitive)
+        - Name check: 20% token overlap with expected title (very lenient)
+        - domain is used to filter URLs when a target site is set (was 'domain_lock')
+        """
         for r in results[:limit]:
             url = r.get("url", "")
-            data = await _scrape_and_verify(
-                url,
-                domain_lock=domain,
-                expected_title=verify_title,
-                expected_sku=verify_sku,
-            )
-            if data and data.get("found_price"):
-                return {
-                    "found_price":        data["found_price"],
-                    "found_availability": data["found_availability"],
-                    "found_url":          url,
-                    "found_source":       r.get("title", ""),
-                    "page_name":          data.get("page_name", ""),
-                }
+            if not url.startswith("http"):
+                continue
+            if any(skip in url for skip in _SKIP_DOMAINS):
+                continue
+            # Filter to target domain when one is set
+            if domain and domain not in _normalize_domain(url):
+                continue
+            # Skip URLs already claimed by a previous product in this job
+            if url in used_urls:
+                print(f"  {_t('skip','grey')} URL already used for another product")
+                continue
+
+            data = await asyncio.to_thread(_scrape_page_for_price, url)
+            if not data.get("found_price"):
+                continue
+
+            page_text = data.get("page_text", "")
+            page_name = data.get("page_name", "")
+
+            # Gate 1: must look like a product/shop page (has buy signals)
+            # Scan up to 15 000 chars of visible text — JS-heavy sites may push
+            # the add-to-cart area well past the first fold.
+            check_text = page_text[:15_000]
+            if not _BUY_SIGNALS.search(check_text):
+                print(f"  {_t('skip','grey')} no buy signals — not a product page")
+                continue
+
+            # Gate 2: SKU must be visible on the page
+            if verify_sku and verify_sku.lower() not in page_text.lower():
+                print(f"  {_t('skip','grey')} SKU «{verify_sku}» not on page")
+                continue
+
+            # Gate 3: name check (only when no SKU to confirm identity).
+            # Threshold 0.50: majority of significant title tokens must appear
+            # on the page — prevents same-brand pages from matching different products.
+            if verify_title and not verify_sku:
+                if not _name_matches(page_name, verify_title, threshold=0.50):
+                    print(f"  {_t('skip','grey')} name mismatch: page={_t(repr(page_name[:60]),'grey')}")
+                    continue
+
+            hit = {
+                "found_price":        data["found_price"],
+                "found_availability": data["found_availability"],
+                "found_url":          url,
+                "found_source":       r.get("title", ""),
+                "page_name":          page_name,
+            }
+            used_urls.add(url)  # mark so no other product reuses this page
+            print(f"  {_t('★ FOUND','green')} {_t(hit['found_price'],'bold')} "
+                  f"tier={data.get('tier','?')}  {_t(url,'grey')}")
+            return hit
         return None
 
-    async def _search(query: str) -> list:
+    async def _search(query: str, n: int = 20) -> list:
         if domain:
-            return await _search_site_for_product(query, domain, engine, max_results=10)
-        return await _search_urls(query, engine, max_results=10)
+            return await _search_site_for_product(query, domain, engine, max_results=n)
+        return await _search_urls(query, engine, max_results=n)
 
     # ── Phase 1: SKU search ───────────────────────────────────────────────────
     if has_sku:
+        print(f"  {_t('[Phase 1]','blue')} SKU search: {_t(product.sku,'yellow')}")
+
+        # Try quoted SKU first, then unquoted if no results
         results = await _search(f'"{product.sku}"')
+        if not results:
+            results = await _search(product.sku)
 
-        # Verify name only when the product also has one
-        hit = await _try(results, verify_title=product.title if has_name else "")
-        if hit:
-            return hit
+        if results:
+            # For SKU search: name verification OFF (SKU is already specific enough),
+            # but we still verify the SKU appears on the actual page.
+            hit = await _try(results, verify_sku=product.sku)
+            if hit:
+                return hit
 
-        # target_url with no search results → try the base URL directly
-        if domain and not results and target_url:
-            data = await _scrape_and_verify(
-                target_url, domain_lock=domain,
-                expected_title=product.title if has_name else "",
-            )
-            if data and data.get("found_price"):
-                return {**data, "found_url": target_url,
-                        "found_source": domain, "page_name": data.get("page_name", "")}
+        # target_url supplied but no search results → scrape it directly
+        if domain and target_url:
+            data = await asyncio.to_thread(_scrape_page_for_price, target_url)
+            if data.get("found_price"):
+                return {**data, "found_url": target_url, "found_source": domain}
 
-    # ── Phase 2: name search (fallback) ──────────────────────────────────────
+    # ── Phase 2: name search ──────────────────────────────────────────────────
     if has_name:
-        title_parts = [f'"{product.title}"']
-        if product.vendor and product.vendor not in product.title:
-            title_parts.append(product.vendor)
-        title_query = " ".join(title_parts)
+        print(f"  {_t('[Phase 2]','blue')} name search: {_t(product.title,'cyan')}")
 
-        results = await _search(title_query if domain else title_query + " price buy")
+        # Build query variants from most to least specific
+        queries: list[str] = []
+        base = product.title.strip()
+        vendor = (product.vendor or "").strip()
 
-        # When the product also has a SKU, require it to appear on the page too —
-        # this prevents accepting a page that shares a similar name but is a different item.
+        if vendor and vendor.lower() not in base.lower():
+            queries.append(f'"{base}" {vendor}')
+        queries.append(f'"{base}"')
+        # Unquoted fallback — catches variant name spellings
+        short = " ".join(base.split()[:6])  # first 6 words only
+        if short != base:
+            queries.append(short)
+
+        if not domain:
+            # Append commercial signals when searching the open web
+            queries = [q + " buy price" for q in queries]
+
+        results: list = []
+        for q in queries:
+            r = await _search(q)
+            results.extend(r)
+            if len(results) >= 20:
+                break
+
+        # Deduplicate while preserving order
+        seen: set = set()
+        results = [r for r in results if not (r["url"] in seen or seen.add(r["url"]))]
+
         hit = await _try(results,
                          verify_title=product.title,
                          verify_sku=product.sku if has_sku else "")
         if hit:
             return hit
 
-        # Last resort: extract price directly from search snippet (no page visit)
+        # Last resort: extract price directly from search snippet (no page visit) :(
         if not domain:
             currency_re = re.compile(
                 r'(?:[\$€£¥₹₩]\s*\d[\d\s,]*\.?\d{0,2})'
@@ -662,10 +860,13 @@ async def _find_price_for_product(product: Product, engine: str,
             for r in results:
                 m = currency_re.search(r.get("snippet", ""))
                 if m and _parse_price_value(m.group()) is not None:
-                    return {"found_price": m.group().strip(), "found_availability": "Unknown",
-                            "found_url": r.get("url", ""), "found_source": r.get("title", ""),
-                            "page_name": ""}
+                    snippet_hit = {"found_price": m.group().strip(), "found_availability": "Unknown",
+                                   "found_url": r.get("url", ""), "found_source": r.get("title", ""),
+                                   "page_name": ""}
+                    print(f"  {_t('★ FOUND (snippet)','yellow')} {snippet_hit['found_price']}")
+                    return snippet_hit
 
+    print(f"  {_t('✘ NOT FOUND','red')} — no price located for this product")
     return NOT_FOUND
 
 
@@ -677,8 +878,15 @@ async def _run_scrape_job(job: ScrapeJob):
     engine = job.config.engine
     target_url = job.config.target_url or None
     target_currency = job.config.target_currency or "MAD"
+    used_urls: set = set()  # URLs already claimed; shared across all products in this job
 
     site_label = f" on {target_url}" if target_url else ""
+    print(
+        f"\n{_t('═'*60,'cyan')}\n"
+        f"{_t('SCRAPE JOB START','bold')} — {len(products)} product(s){site_label}\n"
+        f"engine={engine}  currency={target_currency}\n"
+        f"{_t('═'*60,'cyan')}"
+    )
     job.push({"type": "status",
               "msg": f"Starting price search for {len(products)} products{site_label}…"})
 
@@ -687,11 +895,11 @@ async def _run_scrape_job(job: ScrapeJob):
             "type": "progress",
             "current": i,
             "total": len(products),
-            "msg": f"[{i+1}/{len(products)}] Searching: {product.title[:60]}…",
+            "msg": f"[{i+1}/{len(products)}] Searching: {product.title[:60]}…"
         })
 
         try:
-            data = await _find_price_for_product(product, engine, target_url)
+            data = await _find_price_for_product(product, engine, target_url, used_urls)
         except Exception as e:
             data = {"found_price": None, "found_availability": "Error",
                     "found_url": "", "found_source": str(e)}
@@ -805,3 +1013,31 @@ async def get_scrape_results(job_id: str, fmt: str = "json"):
         )
 
     return {"results": job.results, "status": job.status, "elapsed": job.elapsed()}
+
+
+@router.post("/map-columns")
+async def map_excel_columns_endpoint(body: dict):
+    """
+    Call this when a spreadsheet is uploaded on the frontend.
+    Body: {"columns": {"ColName": ["row1","row2",…], …}}
+    The neural net analyses column names + sample values and prints
+    the full mapping to the terminal. Returns the mapping as JSON too.
+    """
+    import asyncio
+    from neural_net import get_net
+    import pandas as pd
+
+    cols_data = body.get("columns", {})
+    if not cols_data:
+        return {"error": "No columns provided"}
+
+    print(
+        f"\n{_t('═'*60,'cyan')}\n"
+        f"{_t('EXCEL UPLOAD — Neural Net Column Mapper','bold')}\n"
+        f"{_t('═'*60,'cyan')}"
+    )
+
+    df = pd.DataFrame({k: v for k, v in cols_data.items()})
+    net = await asyncio.to_thread(get_net)
+    mapping = net.map_excel_columns(df, verbose=True)
+    return {"mapping": mapping}

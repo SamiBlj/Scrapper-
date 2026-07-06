@@ -7,7 +7,60 @@ To Do:
 Prospect finder:
 - Search initially on google (using the scrapper + on google maps searching for local business with a specific filter)
 - Output all fo the results in an excel sheet:
-	- find their numbers + emails
-	- search on linked in for the CEO's information
+	- find their numbers + emails TO DO
+	- search on linked in for the CEO's information TO DO
 
 
+
+Scraper.py:
+
+Path A:
+steps:
+- get the html code
+- parse the html code to get the written words
+- from the words, find where all the products are by feeding the data into an llm
+- have the llm outputthe parts where the products are
+- from the output of the llm, find where the words are int eh html code to find where in the page the products are
+-
+
+Path B: COMPLETED
+- Send a bot into the site to output how teh website works in the form of a folder.
+- Once the folder look map of the website has been created then send in the crawler to find where all the products are.
+- Create a folder like map of where the values of each product is int he site.
+
+- Once product has been found, send the html parsed code to an llm to get a result of where the values are, and so on to find where those values are in the html code.
+- Once the map of the values of the products has been found, use a bfs model to find all of the values.
+- Use site crawler code to find what the values of the products look like
+	- Use that to make the values the final goal when going through the folder like map of the sites.
+
+
+
+                    ┌─────────────────────────────┐
+                    │  Step 1: BFS site mapper     │
+                    │  Output: URL pattern map     │
+                    └────────────┬────────────────┘
+                                 │
+                    ┌────────────▼────────────────┐
+                    │  Step 2: Pattern classifier  │
+                    │  Output: product URL list    │
+                    └────────────┬────────────────┘
+                                 │
+              ┌──────────────────▼──────────────────────┐
+              │  Step 3: Selector inference              │
+              │  (DOM comparison across N pages)         │
+              │         +                               │
+              │  Step 4: LLM fallback                   │
+              │  Output: site_map {field → CSS selector} │
+              └──────────────────┬──────────────────────┘
+                                 │
+                    ┌────────────▼────────────────┐
+                    │  Step 5: BFS extractor       │
+                    │  Uses site_map as fast path  │
+                    │  Falls back to DOM BFS       │
+                    └────────────┬────────────────┘
+                                 │
+                    ┌────────────▼────────────────┐
+                    │  Step 6: Crawler validation  │
+                    │  Compares results, refines   │
+                    │  rules over time             │
+                    └─────────────────────────────┘

@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import os
 import queue as _queue
 import subprocess
@@ -9,14 +10,39 @@ import uuid
 from typing import Optional
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, HTMLResponse
 from pydantic import BaseModel
 
 sys.path.insert(0, os.path.dirname(__file__))
 
+# ── Terminal logging setup ────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-7s  %(name)s — %(message)s",
+    datefmt="%H:%M:%S",
+)
+_C = {
+    "reset":"\033[0m","bold":"\033[1m","green":"\033[92m","red":"\033[91m",
+    "yellow":"\033[93m","cyan":"\033[96m","grey":"\033[90m","blue":"\033[94m",
+}
+def _t(msg, c="reset"): return f"{_C.get(c,'')}{msg}{_C['reset']}"
+
 app = FastAPI(title="Product Spider API")
+
+@app.middleware("http")
+async def _log_requests(request: Request, call_next):
+    method = request.method
+    path   = request.url.path
+    if not path.startswith("/api"):      # skip HTML/static
+        return await call_next(request)
+    start = datetime.now()
+    resp  = await call_next(request)
+    ms    = round((datetime.now() - start).total_seconds() * 1000)
+    colour = "green" if resp.status_code < 400 else "red"
+    print(f"{_t('API','bold')} {_t(method,'cyan')} {path}  {_t(str(resp.status_code), colour)}  {ms}ms")
+    return resp
 
 # Mount scraper router
 from scraper import router as scraper_router
@@ -29,6 +55,10 @@ app.include_router(prospects_router)
 # Mount crawler router
 from crawler import router as crawler_router
 app.include_router(crawler_router)
+
+# Mount smart scraper router
+from smart_scraper import router as smart_router
+app.include_router(smart_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -429,12 +459,57 @@ async def root():
     with open(html_path, encoding="utf-8") as f:
         return f.read()
 
-#user_input = input('reset the server by pressing "r" ')
 
-if __name__ == "__main__" : #or user_input == 'r'
-    print("_"*20)
-    print("initialising Server, YIPPEEEEE")
-    print("_"*20)
+# ── Neural net ────────────────────────────────────────────────────────────────
+# Expose the singleton so other modules can call it.
+
+@app.on_event("startup")
+async def _startup_net():
+    """Load or train the field-classification neural net on server startup."""
+    try:
+        from neural_net import get_net
+        await asyncio.to_thread(get_net)   # runs in thread — won't block the loop
+    except Exception as exc:
+        print(_t(f"⚠  Neural net startup error: {exc}", "yellow"))
+
+
+@app.post("/api/nn/predict")
+async def nn_predict(body: dict):
+    """
+    Quick endpoint to test the neural net from the browser console or curl:
+      POST /api/nn/predict  {"text": "29.99 DH"}
+    The result is also printed to the terminal.
+    """
+    from neural_net import get_net
+    text = body.get("text", "")
+    if not text:
+        raise HTTPException(400, "text required")
+    net = await asyncio.to_thread(get_net)
+    result = net.predict(text, verbose=True)   # prints to terminal
+    return result
+
+
+@app.post("/api/nn/map-excel")
+async def nn_map_excel(body: dict):
+    """
+    Map Excel columns to product fields via the neural net.
+    Body: {"columns": {"ColName": ["val1","val2",…], …}}
+    The mapping is printed to the terminal in full.
+    """
+    import pandas as pd
+    from neural_net import get_net
+    cols_data = body.get("columns", {})
+    if not cols_data:
+        raise HTTPException(400, "columns required")
+    df = pd.DataFrame({k: v for k, v in cols_data.items()})
+    net = await asyncio.to_thread(get_net)
+    mapping = net.map_excel_columns(df, verbose=True)   # prints to terminal
+    return {"mapping": mapping}
+
+
+if __name__ == "__main__":
+    print(f"\n{_t('═'*60,'cyan')}")
+    print(f"  {_t('EProgram Server','grey')}  —  starting up…")
+    print(f"{_t('═'*60,'cyan')}\n")
     import uvicorn
-    print("INITIALIZING UVICORN ON LOCALHOST PORT 8000 WITH RELOAD")
     uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
