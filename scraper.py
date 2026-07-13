@@ -1,8 +1,3 @@
-"""
-scraper.py — Price & availability comparison engine.
-Searches the web for each product from an uploaded catalog file,
-extracts competitor pricing and stock, streams results back.
-"""
 import asyncio
 import json
 import logging
@@ -23,7 +18,7 @@ scrape_jobs: dict = {}
 
 log = logging.getLogger("scraper")
 
-# ANSI colours for terminal readability
+# Terminal colours
 _C = {
     "reset": "\033[0m",  "bold": "\033[1m",
     "green": "\033[92m", "red":   "\033[91m",
@@ -63,48 +58,25 @@ HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 
-# PRICE_RE: only match strings that have an EXPLICIT currency marker.
-# No bare decimals — "12.99" alone matches version numbers, coordinates, etc.
-# Every branch here requires a currency symbol or code word.
+# Price regex — requires explicit currency symbol or code
 PRICE_RE = re.compile(
-    r'(?:[\$€£¥₹₩]\s*\d[\d\s,]*\.?\d{0,2})'                              # $12.99  €1 299
-    r'|(?:\d[\d\s,]*(?:\.\d{1,2})?\s*(?:€|EUR|USD|GBP|DZD|MAD|TND|DA|DH|DHS|درهم|دج))',  # 12.99€  1299 DA
+    r'(?:[\$€£¥₹₩]\s*\d[\d\s,]*\.?\d{0,2})'
+    r'|(?:\d[\d\s,]*(?:\.\d{1,2})?\s*(?:€|EUR|USD|GBP|DZD|MAD|TND|DA|DH|DHS|درهم|دج))',
     re.IGNORECASE,
 )
 
-# Words that disqualify a number from being a price (found nearby in text)
 _NON_PRICE_CONTEXT = re.compile(
     r'(?:item|items|qty|quantity|review|rating|star|model|ref|sku|year|'
     r'page|result|stock|count|sold|weight|kg|g\b|lb|oz|cm|mm|inch)',
     re.IGNORECASE,
 )
 
-
 def _is_barcode(sku: str) -> bool:
-    """Return True if the SKU looks like an EAN/UPC/internal barcode.
-    Barcodes are all-digit strings of 8+ chars and never appear on product pages.
-    """
     return bool(sku) and re.match(r'^\d{8,}$', sku.strip()) is not None
 
 
-# ── Currency conversion ───────────────────────────────────────────────────────
-#
-# HOW IT WORKS
-# ────────────
-# All rates below are stored as "1 unit of CURRENCY = N MAD".
-# To convert between any two currencies we pivot through MAD:
-#
-#   rate(A → B) = MAD_RATES[A] / MAD_RATES[B]
-#
-# Example: 100 USD → MAD  →  100 × (10.05 / 1.0)  = 1005 MAD
-# Example: 100 USD → EUR  →  100 × (10.05 / 11.20) = ~89.7 EUR
-#
-# TO UPDATE RATES: Go to https://www.bkam.ma (Bank Al-Maghrib) or
-# https://www.xe.com and look up the mid-rate for each currency vs MAD.
-# Update the numbers below — no code changes needed anywhere else.
-# ─────────────────────────────────────────────────────────────────────────────
+# ── Currency rates (1 unit → MAD) ────────────────────────────────────────────
 
-# 1 unit of each currency expressed in MAD  (update periodically)
 MAD_RATES: dict[str, float] = {
     "MAD": 1.0,
     "USD": 10.05,
@@ -113,7 +85,7 @@ MAD_RATES: dict[str, float] = {
     "CHF": 11.60,
     "CAD": 7.35,
     "AUD": 6.55,
-    "JPY": 0.069,   # 1 JPY = 0.069 MAD  (i.e. 100 JPY ≈ 6.9 MAD)
+    "JPY": 0.069,
     "CNY": 1.39,
     "SAR": 2.68,
     "AED": 2.74,
@@ -142,9 +114,7 @@ _TEXT_TO_CODE = {
     'TRY': 'TRY', 'INR': 'INR', 'KRW': 'KRW',
 }
 
-
 def _detect_currency(price_str: str) -> str:
-    """Detect the currency code from a raw price string."""
     for sym, code in _SYMBOL_TO_CODE.items():
         if sym in price_str:
             return code
@@ -152,33 +122,24 @@ def _detect_currency(price_str: str) -> str:
     for text, code in _TEXT_TO_CODE.items():
         if text in upper:
             return code
-    return 'USD'  # default — most international e-commerce prices are in USD
-
+    return 'USD'
 
 def _get_rate(from_curr: str, to_curr: str) -> float:
-    """Convert between any two currencies by pivoting through MAD."""
-    f = from_curr.upper()
-    t = to_curr.upper()
+    f, t = from_curr.upper(), to_curr.upper()
     if f == t:
         return 1.0
-    from_in_mad = MAD_RATES.get(f)
-    to_in_mad   = MAD_RATES.get(t)
-    if from_in_mad and to_in_mad:
-        return round(from_in_mad / to_in_mad, 6)
-    return 1.0  # unknown currency — no conversion
-
+    fm = MAD_RATES.get(f)
+    tm = MAD_RATES.get(t)
+    if fm and tm:
+        return round(fm / tm, 6)
+    return 1.0
 
 def _convert_price(price_str: str, target_currency: str) -> tuple[Optional[float], str]:
-    """
-    Parse a raw price string, detect its currency, convert to target_currency.
-    Returns (converted_value, detected_source_currency).
-    """
     src = _detect_currency(price_str)
     val = _parse_price_value(price_str)
     if val is None:
         return None, src
-    rate = _get_rate(src, target_currency)
-    return round(val * rate, 2), src
+    return round(val * _get_rate(src, target_currency), 2), src
 
 
 # ── Models ────────────────────────────────────────────────────────────────────
@@ -193,14 +154,12 @@ class Product(BaseModel):
     your_price: Optional[float] = None
     your_qty: Optional[int] = None
 
-
 class ScrapeConfig(BaseModel):
     products: List[Product]
     engine: str = "duckduckgo"
     serpapi_key: Optional[str] = None
-    target_url: Optional[str] = None   # optional competitor site to restrict search to
-    target_currency: str = "MAD"       # currency to convert all prices into
-
+    target_url: Optional[str] = None
+    target_currency: str = "MAD"
 
 class ScrapeJob:
     def __init__(self, job_id: str, config: ScrapeConfig):
@@ -219,21 +178,18 @@ class ScrapeJob:
         return round((datetime.now() - self.start_time).total_seconds(), 1)
 
 
-# ── Price extraction helpers ──────────────────────────────────────────────────
+# ── Price extraction ──────────────────────────────────────────────────────────
 
 def _parse_price_value(text: str) -> Optional[float]:
-    """Convert a raw price string to a float, or None if it can't be parsed."""
     raw = re.sub(r'[^\d.,]', '', text.strip())
     if not raw:
         return None
-    # Handle formats like 1,299.99 or 1.299,99
     if ',' in raw and '.' in raw:
         if raw.rfind(',') > raw.rfind('.'):
             raw = raw.replace('.', '').replace(',', '.')
         else:
             raw = raw.replace(',', '')
     elif ',' in raw:
-        # Could be decimal comma (European) or thousands separator
         parts = raw.split(',')
         if len(parts) == 2 and len(parts[1]) <= 2:
             raw = raw.replace(',', '.')
@@ -241,58 +197,42 @@ def _parse_price_value(text: str) -> Optional[float]:
             raw = raw.replace(',', '')
     try:
         val = float(raw)
-        # Sanity check: prices should be between 0.01 and 9,999,999
         if 0.01 <= val <= 9_999_999:
             return round(val, 2)
     except ValueError:
         pass
     return None
 
-
 def _extract_price_from_text(text: str) -> Optional[str]:
-    """Pull the best price candidate from arbitrary text."""
-    matches = PRICE_RE.findall(text)
-    for m in matches:
+    for m in PRICE_RE.findall(text):
         m = m.strip()
-        val = _parse_price_value(m)
-        if val is not None:
+        if _parse_price_value(m) is not None:
             return m
     return None
 
-
 def _extract_from_jsonld(soup: BeautifulSoup) -> Optional[str]:
-    """Parse JSON-LD structured data — most reliable source for e-commerce prices."""
-    used_prices = []
     for script in soup.find_all('script', type='application/ld+json'):
         try:
-            raw = script.string or ''
-            data = json.loads(raw)
+            data = json.loads(script.string or '')
             if isinstance(data, list):
                 data = data[0] if data else {}
-
-            # Offer can be nested or at top level
             offers = data.get('offers') or data.get('Offers') or {}
-            if isinstance(offers, list):    
+            if isinstance(offers, list):
                 offers = offers[0] if offers else {}
-
             price = (
                 offers.get('price') or offers.get('Price') or
                 data.get('price') or data.get('Price')
             )
-            if (price is not None):
-                used_prices.append(price)
+            if price is not None:
                 val = _parse_price_value(str(price))
-                if (val is not None):
+                if val is not None:
                     currency = offers.get('priceCurrency', '')
                     return f"{val} {currency}".strip()
-            
         except Exception:
             continue
     return None
 
-
 def _extract_from_meta(soup: BeautifulSoup) -> Optional[str]:
-    """Check Open Graph and standard price meta tags."""
     for prop in ['product:price:amount', 'og:price:amount', 'twitter:data1']:
         el = soup.find('meta', property=prop) or soup.find('meta', attrs={'name': prop})
         if el and el.get('content'):
@@ -301,18 +241,14 @@ def _extract_from_meta(soup: BeautifulSoup) -> Optional[str]:
                 return str(val)
     return None
 
-
 def _extract_from_schema_itemprop(soup: BeautifulSoup) -> Optional[str]:
-    """Extract price from itemprop="price" — second most reliable source."""
     el = soup.find(attrs={'itemprop': 'price'})
     if el:
-        # Prefer the `content` attribute (machine-readable)
         content = el.get('content')
         if content:
             val = _parse_price_value(content)
             if val is not None:
                 return str(val)
-        # Fall back to text content
         text = el.get_text(strip=True)
         if text:
             val = _parse_price_value(text)
@@ -320,43 +256,30 @@ def _extract_from_schema_itemprop(soup: BeautifulSoup) -> Optional[str]:
                 return text
     return None
 
-
 def _extract_from_visible_blocks(soup: BeautifulSoup) -> Optional[str]:
-    """
-    Tier 5 (broad): scan every short text node on the page.
-    Accept a price only when it appears within 3 siblings of a buy/price signal word.
-    This catches sites that don't use standard classes or structured data.
-    """
     _BUY_RE = re.compile(
         r'(price|prix|cost|tarif|buy|achet|panier|cart|commander|add to|ajouter|'
         r'disponible|stock|checkout|total|amount|montant)',
         re.IGNORECASE,
     )
-
     def _short_text(node) -> str:
         t = node.get_text(" ", strip=True)
         return t if len(t) < 120 else ""
-
     for parent in soup.find_all(True):
         children = [c for c in parent.children if hasattr(c, "get_text")]
         for i, child in enumerate(children):
             txt = _short_text(child)
             if not txt or not PRICE_RE.search(txt):
                 continue
-            # Check surrounding siblings for a buy/price signal
             window = children[max(0, i-3): i+4]
             context = " ".join(_short_text(c) for c in window)
             if _BUY_RE.search(context):
                 p = _extract_price_from_text(txt)
-                if p:
-                    val = _parse_price_value(p)
-                    if val is not None:
-                        return p
+                if p and _parse_price_value(p) is not None:
+                    return p
     return None
 
-
 def _extract_from_css_classes(soup: BeautifulSoup) -> Optional[str]:
-    #Try common price CSS class patterns, with validation.
     selectors = [
         '[class*="sale-price"]', '[class*="sale_price"]',
         '[class*="product-price"]', '[class*="product_price"]',
@@ -373,19 +296,14 @@ def _extract_from_css_classes(soup: BeautifulSoup) -> Optional[str]:
             txt = node.get_text(' ', strip=True)
             if not txt or len(txt) > 60:
                 continue
-            # Skip nodes that look like a container (have many children)
             if len(node.find_all()) > 4:
                 continue
             p = _extract_price_from_text(txt)
-            if p:
-                val = _parse_price_value(p)
-                if val is not None:
-                    return p
+            if p and _parse_price_value(p) is not None:
+                return p
     return None
 
 def _extract_page_product_name(soup: BeautifulSoup) -> str:
-    """Best-effort extraction of the product name shown on a page."""
-    # JSON-LD first
     for script in soup.find_all('script', type='application/ld+json'):
         try:
             data = json.loads(script.string or '')
@@ -396,72 +314,81 @@ def _extract_page_product_name(soup: BeautifulSoup) -> str:
                 return name.strip()
         except Exception:
             pass
-    # itemprop="name"
     el = soup.find(attrs={'itemprop': 'name'})
     if el:
         txt = el.get('content') or el.get_text(strip=True)
         if txt:
             return txt.strip()
-    # og:title
     og = soup.find('meta', property='og:title')
     if og and og.get('content'):
         return og['content'].strip()
-    # <title> tag (often "Product Name | Site")
     title_tag = soup.find('title')
     if title_tag:
         raw = title_tag.get_text(strip=True)
-        # strip everything after the first | or – delimiter
         for sep in ('|', '–', '-', '::'):
             if sep in raw:
                 raw = raw.split(sep)[0].strip()
                 break
         return raw
-    # h1 fallback
     h1 = soup.find('h1')
     return h1.get_text(strip=True) if h1 else ""
 
 
-def _name_matches(page_name: str, expected_title: str, threshold: float = 0.20) -> bool:
-    """
-    Return True if page_name is a plausible match for expected_title.
+# ── Name / URL matching ───────────────────────────────────────────────────────
 
-    Strategy: tokenise both strings (lowercase, drop short stop-words),
-    then check what fraction of the expected title's significant tokens
-    appear anywhere in the page name. Threshold is intentionally low (35%)
-    so partial / translated names still pass — we just want to rule out
-    completely wrong products.
-    """
+def _name_matches(page_name: str, expected_title: str, threshold: float = 0.20) -> bool:
     if not page_name or not expected_title:
-        return True  # can't verify → don't reject
+        return True
 
     _STOPS = {'the', 'a', 'an', 'and', 'or', 'of', 'for', 'with', 'in', 'on',
               'to', 'by', 'at', 'de', 'du', 'le', 'la', 'les', 'et', 'pour'}
 
     def tokenise(s: str) -> set:
-        tokens = re.findall(r'[a-z0-9]+', s.lower())
-        return {t for t in tokens if len(t) > 2 and t not in _STOPS}
+        return {t for t in re.findall(r'[a-z0-9]+', s.lower())
+                if len(t) > 2 and t not in _STOPS}
 
     expected_tokens = tokenise(expected_title)
     if not expected_tokens:
         return True
 
-    # Adaptive threshold: short titles need a higher fraction of tokens to match.
-    # "PARFUM EDT" (2 tokens) at 50% would accept any page mentioning just "parfum"
-    # or just "edt" — far too permissive.
     n = len(expected_tokens)
     if n <= 2:
-        threshold = max(threshold, 1.0)   # all tokens must match
+        threshold = max(threshold, 1.0)
     elif n == 3:
-        threshold = max(threshold, 0.67)  # 2 of 3 tokens
+        threshold = max(threshold, 0.67)
 
-    page_tokens = tokenise(page_name)
-    overlap = expected_tokens & page_tokens
-    score = len(overlap) / len(expected_tokens)
-    return score >= threshold
+    overlap = expected_tokens & tokenise(page_name)
+    return len(overlap) / len(expected_tokens) >= threshold
 
+def _normalize_domain(url: str) -> str:
+    try:
+        parsed = urlparse(url if "://" in url else "https://" + url)
+        return parsed.netloc.replace("www.", "").lower()
+    except Exception:
+        return ""
+
+def _url_slug_matches(url: str, title: str, threshold: float = 0.35) -> bool:
+    try:
+        path = urlparse(url).path.lower()
+        _STOP = {
+            'the','a','an','and','or','of','for','with','in','on','to','by','at',
+            'product','products','item','items','shop','store','buy','detail',
+            'details','html','php','aspx','htm','en','fr','ar',
+        }
+        def tok(s: str) -> set:
+            return {t for t in re.findall(r'[a-z0-9]+', s.lower())
+                    if len(t) > 2 and t not in _STOP}
+        title_tok = tok(title)
+        if len(title_tok) < 2:
+            return True
+        return len(title_tok & tok(path)) / len(title_tok) >= threshold
+    except Exception:
+        return True
+
+
+# ── Page scraper ──────────────────────────────────────────────────────────────
 
 def _scrape_page_for_price(url: str) -> dict:
-    """Fetch a URL and extract price, availability and product name."""
     print(f"  {_t('→ fetching','cyan')} {_t(url,'grey')}")
     try:
         resp = requests.get(url, headers=HEADERS, timeout=14)
@@ -470,38 +397,35 @@ def _scrape_page_for_price(url: str) -> dict:
             return {"found_price": None, "found_availability": "Error", "page_name": ""}
 
         soup = BeautifulSoup(resp.text, "lxml")
-
         page_name = _extract_page_product_name(soup)
 
-        # Tier 1: JSON-LD structured data (most reliable)
+        # Tier 1 — JSON-LD
         found_price = _extract_from_jsonld(soup)
         tier_label = "json-ld" if found_price else None
 
-        # Tier 2: Open Graph / meta price tags
+        # Tier 2 — meta tags
         if not found_price:
             found_price = _extract_from_meta(soup)
             if found_price: tier_label = "meta"
 
-        # Tier 3: itemprop="price"
+        # Tier 3 — itemprop
         if not found_price:
             found_price = _extract_from_schema_itemprop(soup)
             if found_price: tier_label = "itemprop"
 
-        # Tier 4: CSS class heuristics
+        # Tier 4 — CSS class heuristics
         if not found_price:
             found_price = _extract_from_css_classes(soup)
             if found_price: tier_label = "css-class"
 
-        # Visible text — used for SKU check and the last-resort regex tiers
         page_text = soup.get_text(" ", strip=True)
 
-        # Tier 5: Visible block context scan (near buy/price keywords)
+        # Tier 5 — visible block context scan
         if not found_price:
             found_price = _extract_from_visible_blocks(soup)
             if found_price: tier_label = "visible-block"
 
-        # Tier 6: PRICE_RE scan on VISIBLE TEXT ONLY (not raw HTML).
-        # Scanning raw HTML hits CSS values, JS strings, version numbers, etc.
+        # Tier 6 — regex on visible text
         if not found_price:
             m = PRICE_RE.search(page_text)
             if m:
@@ -513,7 +437,7 @@ def _scrape_page_for_price(url: str) -> dict:
         if not tier_label:
             tier_label = "none"
 
-        # Availability detection (on raw HTML — these are usually in meta/JS tags)
+        # Availability
         pg = resp.text.lower()
         found_availability = "Unknown"
         if any(x in pg for x in ["instock", "in stock", "en stock", "disponible",
@@ -527,11 +451,7 @@ def _scrape_page_for_price(url: str) -> dict:
         elif any(x in pg for x in ["limited stock", "low stock", "hurry", "only"]):
             found_availability = "Low Stock"
 
-        # ── Neural net scan on candidate leaf nodes ────────────────────────
-        # Collect short text snippets from leaf nodes and classify them.
-        # This runs alongside the rule-based tiers so you can see in the
-        # terminal which text the neural net identifies for each field.
-        # Neural net scan — fire-and-forget, doesn't affect return value
+        # Neural net scan (fire-and-forget)
         try:
             from neural_net import get_net
             candidates = [
@@ -559,62 +479,9 @@ def _scrape_page_for_price(url: str) -> dict:
                 "page_name": "", "page_text": ""}
 
 
-def _normalize_domain(url: str) -> str:
-    """Extract bare domain from a URL string (strips www.)."""
-    try:
-        parsed = urlparse(url if "://" in url else "https://" + url)
-        return parsed.netloc.replace("www.", "").lower()
-    except Exception:
-        return ""
-
-
-def _url_slug_matches(url: str, title: str, threshold: float = 0.35) -> bool:
-    """Check if the URL path keywords overlap with the product title — free, no HTTP."""
-    try:
-        path = urlparse(url).path.lower()
-        _STOP = {
-            'the','a','an','and','or','of','for','with','in','on','to','by','at',
-            'product','products','item','items','shop','store','buy','detail',
-            'details','html','php','aspx','htm','en','fr','ar',
-        }
-        def tok(s: str) -> set:
-            return {t for t in re.findall(r'[a-z0-9]+', s.lower())
-                    if len(t) > 2 and t not in _STOP}
-        title_tok = tok(title)
-        if len(title_tok) < 2:
-            return True  # title too short to discriminate
-        return len(title_tok & tok(path)) / len(title_tok) >= threshold
-    except Exception:
-        return True
-
-
-async def _search_site_for_product(query: str, domain: str, engine: str,
-                                   max_results: int = 20) -> list:
-    """Search within a specific domain using site: operator, DDG + Bing in parallel."""
-    site_query = f'site:{domain} {query}'
-    print(f"  {_t('site-search','grey')} domain={domain} query={_t(repr(query),'yellow')}")
-
-    ddg_task  = asyncio.to_thread(_ddg_search,  site_query, max_results)
-    bing_task = asyncio.to_thread(_bing_search, site_query, max_results)
-    all_batches = await asyncio.gather(ddg_task, bing_task, return_exceptions=True)
-
-    seen: set = set()
-    results: list = []
-    for batch in all_batches:
-        if isinstance(batch, Exception) or not batch:
-            continue
-        for r in batch:
-            u = r.get("url", "")
-            if u and domain in u and u not in seen:
-                seen.add(u)
-                results.append(r)
-
-    print(f"  {_t('→','grey')} {len(results)} site-restricted results")
-    return results
-
+# ── Search engines ────────────────────────────────────────────────────────────
 
 def _ddg_search(query: str, max_results: int = 20) -> list:
-    """Blocking DuckDuckGo search — run inside asyncio.to_thread."""
     try:
         from ddgs import DDGS
         out = []
@@ -628,9 +495,7 @@ def _ddg_search(query: str, max_results: int = 20) -> list:
     except Exception:
         return []
 
-
 def _bing_search(query: str, max_results: int = 20) -> list:
-    """Blocking Bing search — run inside asyncio.to_thread."""
     try:
         resp = requests.get(
             "https://www.bing.com/search",
@@ -652,83 +517,52 @@ def _bing_search(query: str, max_results: int = 20) -> list:
     except Exception:
         return []
 
-
 async def _search_urls(query: str, engine: str, max_results: int = 20) -> list:
-    """
-    Run DDG and Bing IN PARALLEL, merge, deduplicate.
-    Both always run — whichever returns first is not awaited by the other.
-    """
     print(f"  {_t('search','grey')} query={_t(repr(query),'yellow')}")
-
-    tasks = []
-    if engine in ("duckduckgo", "all", "bing"):
-        tasks.append(asyncio.to_thread(_ddg_search, query, max_results))
-        tasks.append(asyncio.to_thread(_bing_search, query, max_results))
-    else:
-        tasks.append(asyncio.to_thread(_ddg_search, query, max_results))
-        tasks.append(asyncio.to_thread(_bing_search, query, max_results))
-
+    tasks = [
+        asyncio.to_thread(_ddg_search, query, max_results),
+        asyncio.to_thread(_bing_search, query, max_results),
+    ]
     all_results = await asyncio.gather(*tasks, return_exceptions=True)
-
-    seen_urls: set = set()
+    seen: set = set()
     merged: list = []
     for batch in all_results:
         if isinstance(batch, Exception) or not batch:
             continue
         for r in batch:
             u = r.get("url", "")
-            if u and u not in seen_urls:
-                seen_urls.add(u)
+            if u and u not in seen:
+                seen.add(u)
                 merged.append(r)
-
-    print(f"  {_t('→','grey')} {len(merged)} unique URLs from search")
+    print(f"  {_t('→','grey')} {len(merged)} unique URLs")
     return merged
 
+async def _search_site_for_product(query: str, domain: str, engine: str,
+                                   max_results: int = 20) -> list:
+    site_query = f'site:{domain} {query}'
+    print(f"  {_t('site-search','grey')} domain={domain} query={_t(repr(query),'yellow')}")
+    ddg_task  = asyncio.to_thread(_ddg_search,  site_query, max_results)
+    bing_task = asyncio.to_thread(_bing_search, site_query, max_results)
+    all_batches = await asyncio.gather(ddg_task, bing_task, return_exceptions=True)
+    seen: set = set()
+    results: list = []
+    for batch in all_batches:
+        if isinstance(batch, Exception) or not batch:
+            continue
+        for r in batch:
+            u = r.get("url", "")
+            if u and domain in u and u not in seen:
+                seen.add(u)
+                results.append(r)
+    print(f"  {_t('→','grey')} {len(results)} site-restricted results")
+    return results
 
-async def _scrape_and_verify(url: str, domain_lock: str = "",
-                             expected_title: str = "", expected_sku: str = "") -> dict:
-    """
-    Fetch url and verify it is the right product before returning.
 
-    Verification rules (only applied when the value is non-empty):
-    - expected_title → page name must fuzzy-match it (35% token overlap)
-    - expected_sku   → SKU must appear literally in the visible page text
-
-    Both checks must pass when both values are provided.
-    Returns the scrape dict on success, empty dict on any failure.
-    """
-    if not url.startswith("http"):
-        return {}
-    if domain_lock and domain_lock not in _normalize_domain(url):
-        return {}
-
-    data = await asyncio.to_thread(_scrape_page_for_price, url)
-
-    # Name check — only when the product has a title
-    if expected_title and not _name_matches(data.get("page_name", ""), expected_title):
-        return {}
-
-    # SKU check — only when the product has a SKU
-    # The SKU must appear somewhere in the visible page text (case-insensitive)
-    if expected_sku:
-        page_text = data.get("page_text", "")
-        if expected_sku.lower() not in page_text.lower():
-            return {}
-
-    return data
-
+# ── Core price finder ─────────────────────────────────────────────────────────
 
 async def _find_price_for_product(product: Product, engine: str,
                                    target_url: Optional[str] = None,
                                    used_urls: Optional[set] = None) -> dict:
-    """
-    Multi-phase search with parallel URL fetching and multi-signal verification.
-
-    Phase 1  — reference SKU search (skipped for barcode SKUs)
-    Phase 2  — name + vendor + type enriched queries, strict verification
-    Phase 3  — broad distinctive-word search, same verification
-    Phase 4  — direct scrape of target_url (when a specific site is given)
-    """
     has_sku   = bool(product.sku and product.sku.strip())
     has_name  = bool(product.title and product.title.strip())
     domain    = _normalize_domain(target_url) if target_url else ""
@@ -757,32 +591,14 @@ async def _find_price_for_product(product: Product, engine: str,
         re.IGNORECASE,
     )
 
-    # ── Core verifier ─────────────────────────────────────────────────────────
+    # ── Verifier ──────────────────────────────────────────────────────────────
     def _passes(data: dict, url: str, verify_title: str, verify_sku: str) -> bool:
-        """
-        Return True if this scraped page should be accepted as a match.
-
-        Verification uses THREE independent signals:
-          A) page name token overlap with expected title  (adaptive threshold)
-          B) vendor name appears in page name, URL, or first 3 000 chars of text
-          C) URL slug keyword overlap with expected title
-
-        SKU  mode  → A or B or C  (SKU already proven by Phase 1)
-        Name mode  → A  OR  (B AND C)
-
-        This lets us accept a page even when the product title is a catalog
-        abbreviation (e.g. "PARFUM EDT") that differs from the page's brand
-        name (e.g. "Dior Sauvage EDT") — as long as BOTH vendor and URL slug
-        confirm the product.
-        """
         page_text = data.get("page_text", "")
         page_name = data.get("page_name", "")
 
-        # Soft buy-signal warning
         if not _BUY_SIGNALS.search(page_text[:15_000]):
             print(f"  {_t('warn','yellow')} no buy signals on page")
 
-        # SKU gate (hard, real reference codes only — not barcodes)
         if verify_sku and not _is_barcode(verify_sku):
             sku_norm  = re.sub(r'[^a-z0-9]', '', verify_sku.lower())
             page_norm = re.sub(r'[^a-z0-9]', '', page_text.lower())
@@ -790,21 +606,17 @@ async def _find_price_for_product(product: Product, engine: str,
                 print(f"  {_t('skip','grey')} SKU «{verify_sku}» not on page")
                 return False
 
-        # Name/identity gate
         if verify_title and not verify_sku:
             sig_a = _name_matches(page_name, verify_title, threshold=0.50)
-
-            vl = vendor.lower()
+            vl    = vendor.lower()
             sig_b = bool(vl and (
                 vl in page_name.lower() or
                 vl in url.lower() or
                 vl in page_text[:3_000].lower()
             ))
-
             sig_c = _url_slug_matches(url, verify_title, threshold=0.35)
 
-            accepted = sig_a or (sig_b and sig_c)
-            if not accepted:
+            if not (sig_a or (sig_b and sig_c)):
                 print(
                     f"  {_t('skip','grey')} not verified "
                     f"name={'✓' if sig_a else '✗'} "
@@ -819,22 +631,13 @@ async def _find_price_for_product(product: Product, engine: str,
     # ── Parallel batch fetcher ────────────────────────────────────────────────
     async def _try(results: list, verify_title: str = "", verify_sku: str = "",
                    limit: int = 30) -> Optional[dict]:
-        """
-        Fetch up to `limit` candidate URLs in parallel batches of 5.
-        Returns the first URL that has a price AND passes verification.
-        """
-        # Pre-filter without HTTP (fast)
         candidates = []
         for r in results:
             url = r.get("url", "")
-            if not url.startswith("http"):
-                continue
-            if any(skip in url for skip in _SKIP_DOMAINS):
-                continue
-            if domain and domain not in _normalize_domain(url):
-                continue
-            if url in used_urls:
-                continue
+            if not url.startswith("http"): continue
+            if any(skip in url for skip in _SKIP_DOMAINS): continue
+            if domain and domain not in _normalize_domain(url): continue
+            if url in used_urls: continue
             candidates.append(r)
             if len(candidates) >= limit:
                 break
@@ -842,18 +645,14 @@ async def _find_price_for_product(product: Product, engine: str,
         BATCH = 5
         for i in range(0, len(candidates), BATCH):
             batch = candidates[i:i + BATCH]
-            tasks = [asyncio.to_thread(_scrape_page_for_price, r["url"])
-                     for r in batch]
+            tasks = [asyncio.to_thread(_scrape_page_for_price, r["url"]) for r in batch]
             data_list = await asyncio.gather(*tasks, return_exceptions=True)
 
             for r, data in zip(batch, data_list):
                 url = r.get("url", "")
-                if isinstance(data, Exception) or not isinstance(data, dict):
-                    continue
-                if not data.get("found_price"):
-                    continue
-                if not _passes(data, url, verify_title, verify_sku):
-                    continue
+                if isinstance(data, Exception) or not isinstance(data, dict): continue
+                if not data.get("found_price"): continue
+                if not _passes(data, url, verify_title, verify_sku): continue
 
                 hit = {
                     "found_price":        data["found_price"],
@@ -869,7 +668,6 @@ async def _find_price_for_product(product: Product, engine: str,
 
         return None
 
-    # ── Search helper ─────────────────────────────────────────────────────────
     async def _search(query: str, n: int = 30) -> list:
         if domain:
             return await _search_site_for_product(query, domain, engine, max_results=n)
@@ -879,41 +677,33 @@ async def _find_price_for_product(product: Product, engine: str,
         seen: set = set()
         return [r for r in lst if not (r["url"] in seen or seen.add(r["url"]))]
 
-    # ── Phase 1: reference SKU search ────────────────────────────────────────
+    # ── Phase 1: reference SKU ────────────────────────────────────────────────
     if has_sku and not _is_barcode(product.sku):
         print(f"  {_t('[Phase 1]','blue')} SKU search: {_t(product.sku,'yellow')}")
-
-        results = await _search(f'"{product.sku}"')
-        if not results:
-            results = await _search(product.sku)
-
+        results = await _search(f'"{product.sku}"') or await _search(product.sku)
         if results:
-            hit = await _try(results, verify_sku=product.sku)
-            if not hit:
-                hit = await _try(results, verify_title=product.title)
+            hit = await _try(results, verify_sku=product.sku) or \
+                  await _try(results, verify_title=product.title)
             if hit:
                 return hit
     elif has_sku:
-        print(f"  {_t('[Phase 1]','blue')} barcode SKU {_t(product.sku,'yellow')} — skip to Phase 2")
+        print(f"  {_t('[Phase 1]','blue')} barcode SKU — skip to Phase 2")
 
-    # ── Phase 2: name + vendor + type enriched queries ────────────────────────
+    # ── Phase 2: name + vendor + type ─────────────────────────────────────────
     if has_name:
         base      = product.title.strip()
         type_hint = (product.product_type or "").strip()
 
-        print(f"  {_t('[Phase 2]','blue')} name search: {_t(base,'cyan')}"
+        print(f"  {_t('[Phase 2]','blue')} name: {_t(base,'cyan')}"
               + (f"  vendor={_t(vendor,'cyan')}" if vendor else ""))
 
         queries: list[str] = []
 
-        # Real reference SKU — most specific
         if has_sku and not _is_barcode(product.sku):
             sku = product.sku.strip()
-            if vendor:
-                queries.append(f'{base} {sku} {vendor}')
+            if vendor: queries.append(f'{base} {sku} {vendor}')
             queries.append(f'{base} {sku}')
 
-        # Vendor + product type — highly differentiating for generic titles
         if vendor and vendor.lower() not in base.lower():
             if type_hint and type_hint.lower() not in base.lower():
                 queries.append(f'"{base}" {type_hint} {vendor}')
@@ -929,7 +719,6 @@ async def _find_price_for_product(product: Product, engine: str,
         if not domain:
             queries = [q + " buy price" for q in queries]
 
-        # Collect up to 60 results across all queries
         raw: list = []
         for q in queries:
             raw.extend(await _search(q, n=30))
@@ -942,23 +731,14 @@ async def _find_price_for_product(product: Product, engine: str,
             return hit
 
         # ── Phase 3: broad distinctive-word fallback ──────────────────────────
-        # Extract the longest (most unique) words from the title and search
-        # without quotes — catches misspellings, translated names, etc.
-        distinct = sorted(
-            [w for w in base.split() if len(w) > 3],
-            key=len, reverse=True
-        )[:5]
+        distinct = sorted([w for w in base.split() if len(w) > 3], key=len, reverse=True)[:5]
         broad = " ".join(distinct)
-        if vendor:
-            broad += f" {vendor}"
-        if not domain:
-            broad += " buy price"
+        if vendor: broad += f" {vendor}"
+        if not domain: broad += " buy price"
 
-        print(f"  {_t('[Phase 3]','blue')} broad search: {_t(broad,'cyan')}")
-        raw3 = await _search(broad, n=30)
-
-        # Exclude URLs already tried in Phase 2
+        print(f"  {_t('[Phase 3]','blue')} broad: {_t(broad,'cyan')}")
         tried_p2 = {r["url"] for r in results_p2}
+        raw3 = await _search(broad, n=30)
         results_p3 = _dedup([r for r in raw3 if r["url"] not in tried_p2])
 
         hit = await _try(results_p3, verify_title=product.title)
@@ -972,7 +752,7 @@ async def _find_price_for_product(product: Product, engine: str,
         if data.get("found_price"):
             return {**data, "found_url": target_url, "found_source": domain}
 
-    print(f"  {_t('✘ NOT FOUND','red')} — no price located for this product")
+    print(f"  {_t('✘ NOT FOUND','red')} — no price located")
     return NOT_FOUND
 
 
@@ -980,11 +760,11 @@ async def _find_price_for_product(product: Product, engine: str,
 
 async def _run_scrape_job(job: ScrapeJob):
     job.status = "running"
-    products = job.config.products
-    engine = job.config.engine
-    target_url = job.config.target_url or None
+    products        = job.config.products
+    engine          = job.config.engine
+    target_url      = job.config.target_url or None
     target_currency = job.config.target_currency or "MAD"
-    used_urls: set = set()  # URLs already claimed; shared across all products in this job
+    used_urls: set  = set()
 
     site_label = f" on {target_url}" if target_url else ""
     print(
@@ -1018,36 +798,35 @@ async def _run_scrape_job(job: ScrapeJob):
                 data["found_price"], target_currency
             )
 
-        # Compute price delta in target currency
-        delta = None
-        delta_pct = None
+        # Price delta
+        delta = delta_pct = None
         if product.your_price and converted_price is not None:
-            delta = round(converted_price - product.your_price, 2)
+            delta     = round(converted_price - product.your_price, 2)
             delta_pct = round((delta / product.your_price) * 100, 1)
 
         result = {
-            "title": product.title,
-            "sku": product.sku,
-            "vendor": product.vendor,
-            "product_type": product.product_type,
-            "status": product.status,
-            "your_price": product.your_price,
-            "your_qty": product.your_qty,
-            "found_price": data["found_price"],
+            "title":                product.title,
+            "sku":                  product.sku,
+            "vendor":               product.vendor,
+            "product_type":         product.product_type,
+            "status":               product.status,
+            "your_price":           product.your_price,
+            "your_qty":             product.your_qty,
+            "found_price":          data["found_price"],
             "found_price_converted": converted_price,
-            "source_currency": source_currency,
-            "target_currency": target_currency,
-            "found_availability": data["found_availability"],
-            "found_url": data["found_url"],
-            "found_source": data["found_source"],
-            "found_name": data.get("page_name", ""),
-            "delta": delta,
-            "delta_pct": delta_pct,
+            "source_currency":      source_currency,
+            "target_currency":      target_currency,
+            "found_availability":   data["found_availability"],
+            "found_url":            data["found_url"],
+            "found_source":         data["found_source"],
+            "found_name":           data.get("page_name", ""),
+            "delta":                delta,
+            "delta_pct":            delta_pct,
         }
         job.results.append(result)
         job.push({"type": "result", "data": result, "index": i})
 
-        await asyncio.sleep(0.5)  # gentle pacing to avoid rate limiting
+        await asyncio.sleep(0.5)
 
     job.status = "done"
     job.push({
@@ -1071,7 +850,6 @@ async def create_scrape_job(config: ScrapeConfig):
     asyncio.create_task(_run_scrape_job(job))
     return {"job_id": job_id, "total": len(config.products)}
 
-
 @router.get("/jobs/{job_id}/stream")
 async def stream_scrape_job(job_id: str):
     from fastapi import HTTPException
@@ -1093,7 +871,6 @@ async def stream_scrape_job(job_id: str):
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache",
                                       "X-Accel-Buffering": "no"})
-
 
 @router.get("/jobs/{job_id}/results")
 async def get_scrape_results(job_id: str, fmt: str = "json"):
@@ -1120,15 +897,8 @@ async def get_scrape_results(job_id: str, fmt: str = "json"):
 
     return {"results": job.results, "status": job.status, "elapsed": job.elapsed()}
 
-
 @router.post("/map-columns")
 async def map_excel_columns_endpoint(body: dict):
-    """
-    Call this when a spreadsheet is uploaded on the frontend.
-    Body: {"columns": {"ColName": ["row1","row2",…], …}}
-    The neural net analyses column names + sample values and prints
-    the full mapping to the terminal. Returns the mapping as JSON too.
-    """
     import asyncio
     from neural_net import get_net
     import pandas as pd
