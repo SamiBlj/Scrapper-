@@ -568,6 +568,26 @@ def _normalize_domain(url: str) -> str:
         return ""
 
 
+def _url_slug_matches(url: str, title: str, threshold: float = 0.35) -> bool:
+    """Check if the URL path keywords overlap with the product title — free, no HTTP."""
+    try:
+        path = urlparse(url).path.lower()
+        _STOP = {
+            'the','a','an','and','or','of','for','with','in','on','to','by','at',
+            'product','products','item','items','shop','store','buy','detail',
+            'details','html','php','aspx','htm','en','fr','ar',
+        }
+        def tok(s: str) -> set:
+            return {t for t in re.findall(r'[a-z0-9]+', s.lower())
+                    if len(t) > 2 and t not in _STOP}
+        title_tok = tok(title)
+        if len(title_tok) < 2:
+            return True  # title too short to discriminate
+        return len(title_tok & tok(path)) / len(title_tok) >= threshold
+    except Exception:
+        return True
+
+
 async def _search_site_for_product(query: str, domain: str, engine: str,
                                    max_results: int = 20) -> list:
     """Search within a specific domain using site: operator, DDG + Bing in parallel."""
@@ -702,25 +722,24 @@ async def _find_price_for_product(product: Product, engine: str,
                                    target_url: Optional[str] = None,
                                    used_urls: Optional[set] = None) -> dict:
     """
-    Search and verify strategy:
+    Multi-phase search with parallel URL fetching and multi-signal verification.
 
-    Has SKU only   → search by SKU.  No extra verification needed (SKU is exact).
-    Has name only  → search by name. Verify page name matches.
-    Has both       → Phase 1: search by SKU, verify name matches.
-                     Phase 2 (fallback): search by name, verify BOTH name and SKU match.
-
-    If target_url is set, every query is restricted to site:<domain> and
-    only URLs on that domain are ever scraped.
+    Phase 1  — reference SKU search (skipped for barcode SKUs)
+    Phase 2  — name + vendor + type enriched queries, strict verification
+    Phase 3  — broad distinctive-word search, same verification
+    Phase 4  — direct scrape of target_url (when a specific site is given)
     """
     has_sku   = bool(product.sku and product.sku.strip())
     has_name  = bool(product.title and product.title.strip())
     domain    = _normalize_domain(target_url) if target_url else ""
-    used_urls = used_urls if used_urls is not None else set()  # URLs already claimed by earlier products
+    vendor    = (product.vendor or "").strip()
+    used_urls = used_urls if used_urls is not None else set()
 
     print(
         f"\n{_t('━'*60,'grey')}\n"
         f"{_t('PRODUCT','bold')} {_t(product.title or '(no title)','cyan')}"
         + (f"  SKU={_t(product.sku,'yellow')}" if has_sku else "")
+        + (f"  vendor={_t(vendor,'cyan')}" if vendor else "")
         + (f"  domain={domain}" if domain else "")
         + f"\n{_t('engine','grey')}={engine}"
     )
@@ -728,145 +747,173 @@ async def _find_price_for_product(product: Product, engine: str,
     NOT_FOUND = {"found_price": None, "found_availability": "Not found",
                  "found_url": "", "found_source": "", "page_name": ""}
 
-    # _SKIP: domains that never have product pages with scrapeable prices
     _SKIP_DOMAINS = {"google.", "bing.", "yahoo.", "youtube.", "facebook.",
                      "instagram.", "twitter.", "tiktok.", "wikipedia.",
                      "reddit.", "linkedin.", "pinterest."}
 
-    # Buy-signal words — at least one must appear on the page for us to trust the price
     _BUY_SIGNALS = re.compile(
         r'add.?to.?cart|buy.?now|ajouter.?au.?panier|commander|checkout|'
         r'add.?to.?bag|acheter|in.?stock|en.?stock|disponible|livraison',
         re.IGNORECASE,
     )
 
+    # ── Core verifier ─────────────────────────────────────────────────────────
+    def _passes(data: dict, url: str, verify_title: str, verify_sku: str) -> bool:
+        """
+        Return True if this scraped page should be accepted as a match.
+
+        Verification uses THREE independent signals:
+          A) page name token overlap with expected title  (adaptive threshold)
+          B) vendor name appears in page name, URL, or first 3 000 chars of text
+          C) URL slug keyword overlap with expected title
+
+        SKU  mode  → A or B or C  (SKU already proven by Phase 1)
+        Name mode  → A  OR  (B AND C)
+
+        This lets us accept a page even when the product title is a catalog
+        abbreviation (e.g. "PARFUM EDT") that differs from the page's brand
+        name (e.g. "Dior Sauvage EDT") — as long as BOTH vendor and URL slug
+        confirm the product.
+        """
+        page_text = data.get("page_text", "")
+        page_name = data.get("page_name", "")
+
+        # Soft buy-signal warning
+        if not _BUY_SIGNALS.search(page_text[:15_000]):
+            print(f"  {_t('warn','yellow')} no buy signals on page")
+
+        # SKU gate (hard, real reference codes only — not barcodes)
+        if verify_sku and not _is_barcode(verify_sku):
+            sku_norm  = re.sub(r'[^a-z0-9]', '', verify_sku.lower())
+            page_norm = re.sub(r'[^a-z0-9]', '', page_text.lower())
+            if sku_norm not in page_norm:
+                print(f"  {_t('skip','grey')} SKU «{verify_sku}» not on page")
+                return False
+
+        # Name/identity gate
+        if verify_title and not verify_sku:
+            sig_a = _name_matches(page_name, verify_title, threshold=0.50)
+
+            vl = vendor.lower()
+            sig_b = bool(vl and (
+                vl in page_name.lower() or
+                vl in url.lower() or
+                vl in page_text[:3_000].lower()
+            ))
+
+            sig_c = _url_slug_matches(url, verify_title, threshold=0.35)
+
+            accepted = sig_a or (sig_b and sig_c)
+            if not accepted:
+                print(
+                    f"  {_t('skip','grey')} not verified "
+                    f"name={'✓' if sig_a else '✗'} "
+                    f"vendor={'✓' if sig_b else '✗'} "
+                    f"url={'✓' if sig_c else '✗'} "
+                    f"← {repr(page_name[:60])}"
+                )
+                return False
+
+        return True
+
+    # ── Parallel batch fetcher ────────────────────────────────────────────────
     async def _try(results: list, verify_title: str = "", verify_sku: str = "",
-                   limit: int = 12) -> Optional[dict]:
+                   limit: int = 30) -> Optional[dict]:
         """
-        Visit up to `limit` URLs from search results.
-        Rules:
-        - Page must have at least one buy/cart signal (proves it's a product page)
-        - SKU check: SKU must appear in visible text (case-insensitive)
-        - Name check: 20% token overlap with expected title (very lenient)
-        - domain is used to filter URLs when a target site is set (was 'domain_lock')
+        Fetch up to `limit` candidate URLs in parallel batches of 5.
+        Returns the first URL that has a price AND passes verification.
         """
-        for r in results[:limit]:
+        # Pre-filter without HTTP (fast)
+        candidates = []
+        for r in results:
             url = r.get("url", "")
             if not url.startswith("http"):
                 continue
             if any(skip in url for skip in _SKIP_DOMAINS):
                 continue
-            # Filter to target domain when one is set
             if domain and domain not in _normalize_domain(url):
                 continue
-            # Skip URLs already claimed by a previous product in this job
             if url in used_urls:
-                print(f"  {_t('skip','grey')} URL already used for another product")
                 continue
+            candidates.append(r)
+            if len(candidates) >= limit:
+                break
 
-            data = await asyncio.to_thread(_scrape_page_for_price, url)
-            if not data.get("found_price"):
-                continue
+        BATCH = 5
+        for i in range(0, len(candidates), BATCH):
+            batch = candidates[i:i + BATCH]
+            tasks = [asyncio.to_thread(_scrape_page_for_price, r["url"])
+                     for r in batch]
+            data_list = await asyncio.gather(*tasks, return_exceptions=True)
 
-            page_text = data.get("page_text", "")
-            page_name = data.get("page_name", "")
-
-            # Gate 1: buy-signal check — soft warning only.
-            # JS-heavy sites (Shopify, WooCommerce) render cart buttons dynamically;
-            # visible text often won't contain them even on a real product page.
-            check_text = page_text[:15_000]
-            if not _BUY_SIGNALS.search(check_text):
-                print(f"  {_t('warn','yellow')} no buy signals — proceeding anyway")
-                # do NOT skip — name/SKU gates below are the real verification
-
-            # Gate 2: SKU must appear in visible page text.
-            # Normalise both sides (strip non-alphanumeric) so "REF-123" matches
-            # "REF 123" or "REF123" as displayed on the page.
-            # Skip this gate for barcodes (EAN/UPC) — they're internal codes that
-            # never appear on product pages.
-            if verify_sku and not _is_barcode(verify_sku):
-                sku_norm  = re.sub(r'[^a-z0-9]', '', verify_sku.lower())
-                page_norm = re.sub(r'[^a-z0-9]', '', page_text.lower())
-                if sku_norm not in page_norm:
-                    print(f"  {_t('skip','grey')} SKU «{verify_sku}» not on page")
+            for r, data in zip(batch, data_list):
+                url = r.get("url", "")
+                if isinstance(data, Exception) or not isinstance(data, dict):
+                    continue
+                if not data.get("found_price"):
+                    continue
+                if not _passes(data, url, verify_title, verify_sku):
                     continue
 
-            # Gate 3: name check (only when no SKU to confirm identity).
-            # 50% token overlap required — prevents same-brand pages from
-            # matching different products (e.g. "PARFUM EDT 65ml" vs "65ml EDT").
-            if verify_title and not verify_sku:
-                if not _name_matches(page_name, verify_title, threshold=0.50):
-                    print(f"  {_t('skip','grey')} name mismatch: page={_t(repr(page_name[:60]),'grey')}")
-                    continue
+                hit = {
+                    "found_price":        data["found_price"],
+                    "found_availability": data["found_availability"],
+                    "found_url":          url,
+                    "found_source":       r.get("title", ""),
+                    "page_name":          data.get("page_name", ""),
+                }
+                used_urls.add(url)
+                print(f"  {_t('★ FOUND','green')} {_t(hit['found_price'],'bold')} "
+                      f"tier={data.get('tier','?')}  {_t(url,'grey')}")
+                return hit
 
-            hit = {
-                "found_price":        data["found_price"],
-                "found_availability": data["found_availability"],
-                "found_url":          url,
-                "found_source":       r.get("title", ""),
-                "page_name":          page_name,
-            }
-            used_urls.add(url)  # mark so no other product reuses this page
-            print(f"  {_t('★ FOUND','green')} {_t(hit['found_price'],'bold')} "
-                  f"tier={data.get('tier','?')}  {_t(url,'grey')}")
-            return hit
         return None
 
-    async def _search(query: str, n: int = 20) -> list:
+    # ── Search helper ─────────────────────────────────────────────────────────
+    async def _search(query: str, n: int = 30) -> list:
         if domain:
             return await _search_site_for_product(query, domain, engine, max_results=n)
         return await _search_urls(query, engine, max_results=n)
 
-    # ── Phase 1: SKU search ───────────────────────────────────────────────────
-    # Skip entirely for barcode SKUs — EAN/UPC codes are internal and never
-    # appear on retailer product pages, so searching by them returns irrelevant
-    # results that pollute Phase 2.
+    def _dedup(lst: list) -> list:
+        seen: set = set()
+        return [r for r in lst if not (r["url"] in seen or seen.add(r["url"]))]
+
+    # ── Phase 1: reference SKU search ────────────────────────────────────────
     if has_sku and not _is_barcode(product.sku):
         print(f"  {_t('[Phase 1]','blue')} SKU search: {_t(product.sku,'yellow')}")
 
-        # Try quoted SKU first, then unquoted if no results
         results = await _search(f'"{product.sku}"')
         if not results:
             results = await _search(product.sku)
 
         if results:
-            # Primary: require the SKU to appear on the page
             hit = await _try(results, verify_sku=product.sku)
             if not hit:
-                # Reference code not on page — try name-only check on same URLs
                 hit = await _try(results, verify_title=product.title)
             if hit:
                 return hit
-
-        # target_url supplied but no search results → scrape it directly
-        if domain and target_url:
-            data = await asyncio.to_thread(_scrape_page_for_price, target_url)
-            if data.get("found_price"):
-                return {**data, "found_url": target_url, "found_source": domain}
     elif has_sku:
-        print(f"  {_t('[Phase 1]','blue')} barcode SKU {_t(product.sku,'yellow')} — skipping to Phase 2")
+        print(f"  {_t('[Phase 1]','blue')} barcode SKU {_t(product.sku,'yellow')} — skip to Phase 2")
 
-    # ── Phase 2: name + SKU combined search ──────────────────────────────────
+    # ── Phase 2: name + vendor + type enriched queries ────────────────────────
     if has_name:
-        base   = product.title.strip()
-        vendor = (product.vendor or "").strip()
-        print(f"  {_t('[Phase 2]','blue')} name search: {_t(base,'cyan')}"
-              + (f" + SKU {_t(product.sku,'yellow')}" if has_sku else ""))
-
-        # Build queries most-specific first.
-        # For products with generic titles (e.g. "PARFUM EDT"), include SKU
-        # and product type so each product gets a unique search string.
-        queries: list[str] = []
+        base      = product.title.strip()
         type_hint = (product.product_type or "").strip()
 
-        # SKU-inclusive queries first — only for real reference codes, not barcodes
+        print(f"  {_t('[Phase 2]','blue')} name search: {_t(base,'cyan')}"
+              + (f"  vendor={_t(vendor,'cyan')}" if vendor else ""))
+
+        queries: list[str] = []
+
+        # Real reference SKU — most specific
         if has_sku and not _is_barcode(product.sku):
             sku = product.sku.strip()
             if vendor:
                 queries.append(f'{base} {sku} {vendor}')
             queries.append(f'{base} {sku}')
 
-        # Vendor + type enrichment
+        # Vendor + product type — highly differentiating for generic titles
         if vendor and vendor.lower() not in base.lower():
             if type_hint and type_hint.lower() not in base.lower():
                 queries.append(f'"{base}" {type_hint} {vendor}')
@@ -882,24 +929,48 @@ async def _find_price_for_product(product: Product, engine: str,
         if not domain:
             queries = [q + " buy price" for q in queries]
 
-        results: list = []
+        # Collect up to 60 results across all queries
+        raw: list = []
         for q in queries:
-            r = await _search(q)
-            results.extend(r)
-            if len(results) >= 20:
+            raw.extend(await _search(q, n=30))
+            if len(raw) >= 60:
                 break
 
-        # Deduplicate while preserving order
-        seen: set = set()
-        results = [r for r in results if not (r["url"] in seen or seen.add(r["url"]))]
-
-        # Single pass with name verification — the adaptive threshold in
-        # _name_matches handles short titles (≤2 tokens → 100% match required).
-        # The removed lenient pass was causing wrong prices for generic names:
-        # accepting any priced page without verification is too risky.
-        hit = await _try(results, verify_title=product.title)
+        results_p2 = _dedup(raw)
+        hit = await _try(results_p2, verify_title=product.title)
         if hit:
             return hit
+
+        # ── Phase 3: broad distinctive-word fallback ──────────────────────────
+        # Extract the longest (most unique) words from the title and search
+        # without quotes — catches misspellings, translated names, etc.
+        distinct = sorted(
+            [w for w in base.split() if len(w) > 3],
+            key=len, reverse=True
+        )[:5]
+        broad = " ".join(distinct)
+        if vendor:
+            broad += f" {vendor}"
+        if not domain:
+            broad += " buy price"
+
+        print(f"  {_t('[Phase 3]','blue')} broad search: {_t(broad,'cyan')}")
+        raw3 = await _search(broad, n=30)
+
+        # Exclude URLs already tried in Phase 2
+        tried_p2 = {r["url"] for r in results_p2}
+        results_p3 = _dedup([r for r in raw3 if r["url"] not in tried_p2])
+
+        hit = await _try(results_p3, verify_title=product.title)
+        if hit:
+            return hit
+
+    # ── Phase 4: direct scrape of target_url ─────────────────────────────────
+    if domain and target_url:
+        print(f"  {_t('[Phase 4]','blue')} direct scrape: {_t(target_url,'grey')}")
+        data = await asyncio.to_thread(_scrape_page_for_price, target_url)
+        if data.get("found_price"):
+            return {**data, "found_url": target_url, "found_source": domain}
 
     print(f"  {_t('✘ NOT FOUND','red')} — no price located for this product")
     return NOT_FOUND
