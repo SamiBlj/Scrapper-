@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Product Spider</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.x/dist/tabler-icons.min.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
@@ -320,13 +322,144 @@ tr.scanning td { animation: rowpulse 1.5s infinite; }
   .sidebar { width: 100%; height: auto; position: static; }
   .metrics { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ══════════════════════════════════════════
+   ENTRANCE ANIMATIONS
+══════════════════════════════════════════ */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes slideRight {
+  from { opacity: 0; transform: translateX(-10px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Tab bar logo pop-in on load */
+.tabs-logo { animation: fadeIn 0.4s ease both; }
+
+/* Page content entrance when tab becomes active */
+.page.active { animation: fadeIn 0.18s ease both; }
+.page.active .sidebar { animation: slideRight 0.25s ease both; }
+.page.active .main > *:nth-child(1) { animation: fadeUp 0.28s 0.04s ease both; }
+.page.active .main > *:nth-child(2) { animation: fadeUp 0.28s 0.09s ease both; }
+.page.active .main > *:nth-child(3) { animation: fadeUp 0.28s 0.14s ease both; }
+.page.active .main > *:nth-child(4) { animation: fadeUp 0.28s 0.19s ease both; }
+.page.active .main > *:nth-child(5) { animation: fadeUp 0.28s 0.24s ease both; }
+
+/* Staggered metric cards */
+.metrics .metric:nth-child(1) { animation: fadeUp 0.3s 0.06s ease both; }
+.metrics .metric:nth-child(2) { animation: fadeUp 0.3s 0.11s ease both; }
+.metrics .metric:nth-child(3) { animation: fadeUp 0.3s 0.16s ease both; }
+.metrics .metric:nth-child(4) { animation: fadeUp 0.3s 0.21s ease both; }
+
+/* ══════════════════════════════════════════
+   DESIGN POLISH
+══════════════════════════════════════════ */
+
+/* Refined tab bar */
+.page-tabs { height: 48px; }
+.tabs-logo { font-weight: 700; letter-spacing: -0.02em; }
+.page-tab { transition: color 0.15s, border-color 0.15s; }
+
+/* Elevated metric cards */
+.metric {
+  position: relative; overflow: hidden;
+  transition: transform 0.15s, box-shadow 0.15s;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+.metric::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, var(--green), transparent);
+}
+.metric:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+.metric .val { font-size: 24px; font-weight: 700; }
+.metric .lbl { font-size: 11px; font-weight: 500; letter-spacing: 0.02em; margin-top: 3px; }
+
+/* Card shadow */
+.card { box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+
+/* Run button lift */
+.run-btn {
+  letter-spacing: 0.01em;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+  transition: opacity 0.15s, transform 0.1s, box-shadow 0.15s;
+}
+.run-btn:not(:disabled):hover {
+  opacity: 0.9; transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.18);
+}
+.run-btn:not(:disabled):active { transform: translateY(0); box-shadow: 0 1px 3px rgba(0,0,0,0.12); }
+
+/* Focus ring */
+input:focus, select:focus, textarea:focus {
+  box-shadow: 0 0 0 3px rgba(29,158,117,0.12);
+}
+
+/* ══════════════════════════════════════════
+   MISSING CLASSES (Site Crawler & Smart Extract)
+══════════════════════════════════════════ */
+.btn {
+  font-size: 13px; padding: 8px 14px;
+  border: 0.5px solid var(--border2); border-radius: var(--radius);
+  background: var(--surface); color: var(--text); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  font-family: inherit; font-weight: 500;
+  transition: background 0.1s, opacity 0.15s, transform 0.1s;
+}
+.btn:hover:not(:disabled) { background: var(--surface2); }
+.btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.btn.btn-primary {
+  background: var(--accent); color: var(--surface);
+  border-color: transparent; font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+}
+.btn.btn-primary:hover:not(:disabled) {
+  opacity: 0.88; transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.18);
+}
+.btn.btn-primary:active:not(:disabled) { transform: translateY(0); }
+
+.results-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.results-table th {
+  text-align: left; font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.05em; color: var(--text3);
+  padding: 8px 10px; border-bottom: 0.5px solid var(--border);
+  white-space: nowrap; position: sticky; top: 0;
+  background: var(--surface); z-index: 1;
+}
+.results-table td {
+  padding: 8px 10px; border-bottom: 0.5px solid var(--border);
+  color: var(--text); vertical-align: top;
+  max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.results-table tr:last-child td { border-bottom: none; }
+.results-table tr:hover td { background: var(--surface2); }
+
+.sidebar-section { display: flex; flex-direction: column; gap: 6px; }
+.sidebar-label {
+  font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--text3);
+}
+.input {
+  width: 100%; padding: 7px 10px; font-size: 13px;
+  border: 0.5px solid var(--border2); border-radius: var(--radius);
+  background: var(--surface2); color: var(--text);
+  font-family: inherit; transition: border-color 0.15s;
+}
+.input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(29,158,117,0.12); }
 </style>
 </head>
 <body>
 
 <!-- ─── TAB BAR ─── -->
 <nav class="page-tabs">
-  <div class="tabs-logo"><i class="ti ti-spider"></i> FML ┌∩┐(◣_◢)┌∩┐</div>
+  <div class="tabs-logo"><i class="ti ti-spider"></i> FML (◣_◢)</div>
   <button class="page-tab active" data-page="bench" onclick="switchPage('bench')">
     <i class="ti ti-target"></i> Benchmarking
   </button>
@@ -334,10 +467,10 @@ tr.scanning td { animation: rowpulse 1.5s infinite; }
     <i class="ti ti-table-import"></i> Price Scraping
   </button>
   <button class="page-tab" data-page="prospects" onclick="switchPage('prospects')">
-    <i class="ti ti-brand-google-maps"></i> Prospect Search :]
+    <i class="ti ti-brand-google-maps"></i> Prospect Search
   </button>
   <button class="page-tab" data-page="crawl" onclick="switchPage('crawl')">
-    <i class="ti ti-world-search"></i> Site Crawler <(◣_◢)>
+    <i class="ti ti-world-search"></i> Site Crawler
   </button>
 </nav>
 
@@ -793,10 +926,7 @@ tr.scanning td { animation: rowpulse 1.5s infinite; }
       <div class="progress-track"><div class="progress-fill" id="pProgressFill"></div></div>
     </div>
 
-    <!-- Map — shown only when coordinates are available -->
-    <div id="pMapWrap" style="display:none;border-radius:var(--radius-lg);overflow:hidden;border:0.5px solid var(--border);height:320px;">
-      <div id="pMap" style="width:100%;height:100%;"></div>
-    </div>
+
 
     <div class="card">
       <div class="card-head">
@@ -826,7 +956,27 @@ tr.scanning td { animation: rowpulse 1.5s infinite; }
           </tbody>
         </table>
       </div>
+      <!-- Map — shown only when coordinates are available -->
+    <div id="pMapWrap" style="display:none;border-radius:var(--radius-lg);overflow:hidden;border:0.5px solid var(--border);height:500px;">
+      <div id="pMap" style="width:100%;height:100%;"></div>
     </div>
+    </div>
+
+    <style>
+      /* Leaflet map attribution — keep small */
+      .leaflet-control-attribution { font-size: 10px !important; }
+      /* Numbered pin icons drawn as plain divs — no image files needed */
+      .lf-pin {
+        background: #1D9E75; color: #fff; border-radius: 50%;
+        width: 28px; height: 28px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 11px; font-weight: 700;
+        border: 2px solid #fff;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+        cursor: pointer;
+      }
+      .lf-pin.grey { background: #6b6b67; }
+    </style>
 
   </main>
 </div>
@@ -896,7 +1046,7 @@ tr.scanning td { animation: rowpulse 1.5s infinite; }
 
     <!-- Progress bar -->
     <div style="height:3px;background:var(--surface2);flex-shrink:0">
-      <div id="crawlProgressBar" style="height:200%;width:0%;background:var(--white);transition:width 0.3s"></div>
+      <div id="crawlProgressBar" style="height:100%;width:0%;background:var(--green);transition:width 0.3s"></div>
     </div>
 
     <!-- Split view: live log + results table -->
@@ -1001,7 +1151,7 @@ tr.scanning td { animation: rowpulse 1.5s infinite; }
     <!-- Selector map panel — populated after Phase 2 -->
     <div id="smSelectorPanel" style="display:none;margin-top:16px">
       <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">
-        Discovered selectors yo
+        Discovered selectors
       </div>
       <div id="smSelectorList" style="display:flex;flex-direction:column;gap:4px;font-size:11px"></div>
     </div>
@@ -1097,7 +1247,9 @@ tr.scanning td { animation: rowpulse 1.5s infinite; }
 
 
 <script>
-const API = window.location.origin;
+const API = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  ? window.location.origin
+  : 'http://localhost:8000';
 // ══════════════════════════════════
 //  SHARED
 // ══════════════════════════════════
@@ -1261,12 +1413,30 @@ async function runSpider() {
     appendLog('', `Job ${job_id.slice(0,8)}… started`);
     openStream(job_id, config.max_results);
     appendLog('', 'CheckPoint 1: End of the try function for searchengine Search')
+    <!--skip site testing-->
+    openStream(job_id, config.skip_domains);
+    appendLog('status', 'SKIPPED THEM DOMAAAIINNSSS, yuurrr, ya yiet, skrrrrrrrr, bomboclart. Yuh. im bored')
   } catch (err) {
     setStatus('error', 'Error: ' + err.message);
     appendLog('', 'CheckPoint 1.5: Pre error message')
     appendLog('err', '❌ ' + err.message); // CAUSE OF THE ERRORS
     appendLog('', 'CheckPoint 2: Post the error message')
     finishRun();
+  }
+}
+
+function skipSites(jobId, skipUrls) {
+  eventSource = new EventSource(API + '/api/jobs/${jobId}/stream');
+  let UrlSeen = 0;
+  eventSource.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'stream_end') { eventSource.close(); return;}
+    if (msg.type === 'status') setStatus('running', msg.msg);
+    if (msg.type === 'log') {
+      UrlSeen++;
+      
+
+    }
   }
 }
 
@@ -1739,6 +1909,7 @@ async function runScrape() {
   }
 }
 
+
 // ══════════════════════════════════
 //  PROSPECT SEARCH PAGE
 // ══════════════════════════════════
@@ -1749,99 +1920,110 @@ let pEventSource = null;
 let pTimer = null;
 let pStartTime = null;
 
-// Google Maps state
-let pMap = null;
-let pMarkers = [];
-let pInfoWindow = null;
-let pMapsLoaded = false;
+// ── OpenStreetMap / Leaflet state ─────────────────────────────────────────
+// Leaflet is loaded from CDN in <head> — no API key needed.
+// Coordinates come from:
+//   • Google Places backend (lat/lng already in the result object)
+//   • Nominatim geocoding (free OSM service) when only an address is available
+let pMap         = null;   // Leaflet map instance
+let pMarkers     = [];     // array of L.Marker objects
+let pMapReady    = false;  // true once Leaflet map has been created
+let _nominatimLast = 0;    // ms timestamp — enforces 1 req/s rate limit
 
 function setPStatus(state, text) {
   document.getElementById('pDot').className = 'dot ' + (state || '');
   document.getElementById('pStatus').textContent = text;
 }
 
-// ── Google Maps helpers ──
-
-function loadGoogleMaps(key) {
-  if (pMapsLoaded || document.getElementById('gmaps-script')) return;
-  const s = document.createElement('script');
-  s.id = 'gmaps-script';
-  s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&callback=initPMap`;
-  s.async = true;
-  document.head.appendChild(s);
+// ── Initialise Leaflet map (called once, on first pin) ─────────────────────
+function _initMap() {
+  if (pMapReady) return;
+  pMapReady = true;
+  pMap = L.map('pMap');
+  // OpenStreetMap tile layer — completely free, no key
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors',
+    maxZoom: 19,
+  }).addTo(pMap);
+  pMap.setView([31.7917, -7.0926], 5); // default centre: Morocco
 }
 
-window.initPMap = function () {
-  pMapsLoaded = true;
-  pMap = new google.maps.Map(document.getElementById('pMap'), {
-    zoom: 11,
-    center: { lat: 45.5017, lng: -73.5673 },  // default: Montreal; recenters on first pin
-    mapTypeControl: false,
-    streetViewControl: false,
-    fullscreenControl: false,
-  });
-  pInfoWindow = new google.maps.InfoWindow();
-  // Drop any queued markers
-  pResults.forEach((r, i) => { if (r.lat && r.lng) _addMarker(r, i); });
-};
-
+// ── Drop one numbered pin on the map ──────────────────────────────────────
 function _addMarker(r, idx) {
-  if (!pMap) return;
-  const pos = { lat: r.lat, lng: r.lng };
-  const marker = new google.maps.Marker({
-    position: pos,
-    map: pMap,
-    title: r.name,
-    label: { text: String(idx + 1), color: '#fff', fontSize: '11px', fontWeight: '700' },
-    icon: {
-      path: google.maps.SymbolPath.CIRCLE,
-      scale: 14,
-      fillColor: r.qualified ? '#1D9E75' : '#6b6b67',
-      fillOpacity: 1,
-      strokeColor: '#fff',
-      strokeWeight: 2,
-    },
+  if (!pMap || !r.lat || !r.lng) return;
+
+  // Numbered circle built from a plain <div> — no image files needed
+  const icon = L.divIcon({
+    className : '',
+    html      : `<div class="lf-pin ${r.qualified ? '' : 'grey'}">${idx + 1}</div>`,
+    iconSize  : [28, 28],
+    iconAnchor: [14, 14],
+    popupAnchor: [0, -16],
   });
-  marker.addListener('click', () => {
-    const liHtml = r.linkedin
-      ? `<a href="${r.linkedin}" target="_blank" style="color:#0a66c2">LinkedIn ↗</a>`
-      : '';
-    const webHtml = r.website
-      ? `<a href="${r.website}" target="_blank" style="color:#185FA5">${r.domain || r.website} ↗</a>`
-      : '';
-    pInfoWindow.setContent(`
-      <div style="font-family:-apple-system,sans-serif;font-size:13px;max-width:220px;line-height:1.5">
-        <strong>${r.name}</strong><br>
+
+  const webHtml = r.website
+    ? `<a href="${r.website}" target="_blank" style="color:#185FA5">${r.domain || r.website} ↗</a>`
+    : '';
+  const liHtml = r.linkedin
+    ? `<a href="${r.linkedin}" target="_blank" style="color:#0a66c2">LinkedIn ↗</a>`
+    : '';
+
+  const marker = L.marker([r.lat, r.lng], { icon, title: r.name || '' })
+    .bindPopup(`
+      <div style="font-family:-apple-system,sans-serif;font-size:13px;max-width:230px;line-height:1.6">
+        <strong style="font-size:14px">${r.name || '—'}</strong><br>
         ${r.address ? `<span style="color:#666;font-size:12px">${r.address}</span><br>` : ''}
-        ${r.phone ? `📞 ${r.phone}<br>` : ''}
-        ${r.email ? `✉ ${r.email}<br>` : ''}
-        ${webHtml ? webHtml + '<br>' : ''}
+        ${r.phone   ? `📞 ${r.phone}<br>`   : ''}
+        ${r.email   ? `✉ ${r.email}<br>`   : ''}
+        ${webHtml   ? webHtml + '<br>'      : ''}
         ${liHtml}
-      </div>`);
-    pInfoWindow.open(pMap, marker);
-  });
+      </div>`, { maxWidth: 250 })
+    .addTo(pMap);
+
   pMarkers.push(marker);
 
-  // Recenter map to fit all markers
-  const bounds = new google.maps.LatLngBounds();
-  pMarkers.forEach(m => bounds.extend(m.getPosition()));
-  pMap.fitBounds(bounds);
+  // Auto-zoom to keep all pins visible
+  const group = L.featureGroup(pMarkers);
+  pMap.fitBounds(group.getBounds().pad(0.15));
   if (pMarkers.length === 1) pMap.setZoom(13);
 }
 
-function _tryAddMarker(r, idx) {
-  if (!r.lat || !r.lng) return;
-  document.getElementById('pMapWrap').style.display = 'block';
-  if (pMapsLoaded) {
-    _addMarker(r, idx);
-  }
-  // else initPMap() will flush pResults once the script loads
+// ── Geocode an address via Nominatim (OSM, free) ──────────────────────────
+// Usage policy: max 1 request/second + descriptive User-Agent header.
+async function _geocode(query) {
+  if (!query) return null;
+  const now  = Date.now();
+  const wait = 1100 - (now - _nominatimLast);
+  if (wait > 0) await new Promise(res => setTimeout(res, wait));
+  _nominatimLast = Date.now();
+  try {
+    const url  = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`;
+    const resp = await fetch(url, { headers: { 'User-Agent': 'MultifitProspectScout/1.0' } });
+    const data = await resp.json();
+    if (data.length) return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+  } catch (_) {}
+  return null;
 }
 
+// ── Called for every incoming prospect result ─────────────────────────────
+// Fast path  → coordinates already set by backend (Google Places)
+// Slow path  → geocode from address/name using Nominatim
+async function _tryAddMarker(r, idx) {
+  if (!r.lat || !r.lng) {
+    const coords = await _geocode(r.address || r.name);
+    if (!coords) return;
+    r.lat = coords.lat;
+    r.lng = coords.lng;
+  }
+  document.getElementById('pMapWrap').style.display = 'block';
+  _initMap();
+  _addMarker(r, idx);
+}
+
+// ── Remove all pins and reset ─────────────────────────────────────────────
 function _clearMarkers() {
-  pMarkers.forEach(m => m.setMap(null));
+  pMarkers.forEach(m => m.remove());
   pMarkers = [];
-  if (pInfoWindow) pInfoWindow.close();
 }
 
 // ── Render table ──
@@ -1904,8 +2086,7 @@ async function runProspects() {
   document.getElementById('pm-email').textContent = '0';
   document.getElementById('pm-time').textContent = '—';
 
-  // Pre-load Maps JS so it's ready when pins start arriving
-  if (gmapsKey) loadGoogleMaps(gmapsKey);
+  // Map uses OpenStreetMap/Leaflet — no pre-loading needed
 
   pStartTime = Date.now();
   pTimer = setInterval(() => {
@@ -2229,6 +2410,7 @@ function stopCrawl() {
   document.getElementById('crawlStopBtn').style.display = 'none';
   if (crawlProducts.length > 0) document.getElementById('crawlExportBtn').disabled = false;
 }
+
 
 function crawlExport(fmt) {
   if (!crawlProducts.length) { alert('No products to export.'); return; }

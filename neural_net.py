@@ -90,6 +90,26 @@ TRAINING_DATA: list[tuple[str, str]] = [
     ("Cost", "price"),
     ("Amount", "price"),
     ("Tarif", "price"),
+    ("34,99 €", "price"),
+    ("$1,299.00", "price"),
+    ("450 MAD", "price"),
+    ("2 100,00 DH", "price"),
+    ("Was $89.99 Now $59.99", "price"),
+    ("À partir de 19,90 €", "price"),
+    ("CAD 24.99", "price"),
+    ("Clearance 5.00", "price"),
+    ("15.500 DT", "price"),
+    ("¥ 3980", "price"),
+    ("Total", "price"),
+    ("Unit Cost", "price"),
+    ("MSRP", "price"),
+    ("Prix TTC", "price"),
+    ("Prix HT", "price"),
+    ("List Price", "price"),
+    ("Final Price", "price"),
+    ("Discounted Price", "price"),
+    ("Montant", "price"),
+    ("Coût unitaire", "price"),
 
     # ── name ─────────────────────────────────────────────────────────────────
     ("Nike Air Max 90 Men's Running Shoes", "name"),
@@ -112,6 +132,20 @@ TRAINING_DATA: list[tuple[str, str]] = [
     ("Adidas Ultraboost 22 Running Shoe White Size 42", "name"),
     ("Canon EOS R5 Mirrorless Camera Body", "name"),
     ("Bosch Serie 6 Washing Machine 9kg", "name"),
+    ("Sony WH-1000XM5 Wireless Noise Cancelling Headphones", "name"),
+    ("Instant Pot Duo 7-in-1 Electric Pressure Cooker 6Qt", "name"),
+    ("Zara Oversized Wool Blend Coat", "name"),
+    ("Lenovo ThinkPad X1 Carbon Gen 11 14\"", "name"),
+    ("L'Oréal Paris Revitalift Anti-Aging Cream 50ml", "name"),
+    ("Nom", "name"),
+    ("Appellation", "name"),
+    ("Product", "name"),
+    ("Item Title", "name"),
+    ("Nom de l'article", "name"),
+    ("Modèle", "name"),
+    ("Nike Air Force 1 '07 White Sneakers", "name"),
+    ("KitchenAid Artisan Stand Mixer 5-Quart", "name"),
+    ("JBL Flip 6 Portable Bluetooth Speaker", "name"),
 
     # ── sku ──────────────────────────────────────────────────────────────────
     ("SKU: AB-12345", "sku"),
@@ -135,6 +169,20 @@ TRAINING_DATA: list[tuple[str, str]] = [
     ("Part No", "sku"),
     ("Item #", "sku"),
     ("Numéro de modèle", "sku"),
+    ("ISBN: 978-3-16-148410-0", "sku"),
+    ("GTIN 00012345678905", "sku"),
+    ("Ref. 4521-XG", "sku"),
+    ("Modèle n° 7734-B", "sku"),
+    ("Article No.: A00982", "sku"),
+    ("Stock Keeping Unit", "sku"),
+    ("Code-barres", "sku"),
+    ("MPN", "sku"),
+    ("Serial Number", "sku"),
+    ("Numéro de série", "sku"),
+    ("Product Code", "sku"),
+    ("Code EAN13", "sku"),
+    ("Variant ID", "sku"),
+    ("External ID", "sku"),
 
     # ── availability ─────────────────────────────────────────────────────────
     ("In Stock", "availability"),
@@ -157,6 +205,20 @@ TRAINING_DATA: list[tuple[str, str]] = [
     ("Qty", "availability"),
     ("Quantity", "availability"),
     ("Stock level", "availability"),
+    ("Sold Out", "availability"),
+    ("Épuisé", "availability"),
+    ("En rupture", "availability"),
+    ("Only 2 left in stock", "availability"),
+    ("Ready to ship", "availability"),
+    ("Coming Soon", "availability"),
+    ("Expédié sous 24h", "availability"),
+    ("Livraison immédiate", "availability"),
+    ("Stock disponible", "availability"),
+    ("Currently unavailable", "availability"),
+    ("In stock, usually ships within 1 day", "availability"),
+    ("État du stock", "availability"),
+    ("Stock restant", "availability"),
+    ("Delivery status", "availability"),
 
     # ── brand ─────────────────────────────────────────────────────────────────
     ("Nike", "brand"),
@@ -175,6 +237,18 @@ TRAINING_DATA: list[tuple[str, str]] = [
     ("Fournisseur", "brand"),
     ("Make", "brand"),
     ("Label", "brand"),
+    ("Puma", "brand"),
+    ("LG", "brand"),
+    ("Whirlpool", "brand"),
+    ("Dell", "brand"),
+    ("Marque : Lenovo", "brand"),
+    ("Fabricant : Bosch", "brand"),
+    ("Made by Panasonic", "brand"),
+    ("Enseigne", "brand"),
+    ("Distributeur", "brand"),
+    ("Supplier", "brand"),
+    ("Marque déposée", "brand"),
+    ("House brand", "brand"),
 
     # ── rating ────────────────────────────────────────────────────────────────
     ("4.5 out of 5", "rating"),
@@ -191,6 +265,17 @@ TRAINING_DATA: list[tuple[str, str]] = [
     ("Avis clients", "rating"),
     ("Customer rating", "rating"),
     ("Avg rating", "rating"),
+    ("4.0 out of 5 stars", "rating"),
+    ("★★★☆☆", "rating"),
+    ("7.8/10", "rating"),
+    ("Noté 4,1 sur 5", "rating"),
+    ("92% recommend this product", "rating"),
+    ("Customer Reviews", "rating"),
+    ("Évaluation", "rating"),
+    ("Note moyenne", "rating"),
+    ("Overall rating", "rating"),
+    ("User score", "rating"),
+    ("Satisfaction", "rating"),
 
     # ── description ──────────────────────────────────────────────────────────
     ("Lightweight and breathable design ideal for long-distance running on any surface.", "description"),
@@ -211,6 +296,19 @@ TRAINING_DATA: list[tuple[str, str]] = [
     ("Text", "description"),
     ("Content", "description"),
     ("Notes", "description"),
+    ("Waterproof up to 50 meters with scratch-resistant sapphire crystal glass.", "description"),
+    ("Fabriqué en France à partir de matériaux recyclés, certifié OEKO-TEX.", "description"),
+    ("Ergonomic design reduces wrist strain during extended use sessions.", "description"),
+    ("Aperçu", "description"),
+    ("Résumé", "description"),
+    ("Product overview", "description"),
+    ("Key features", "description"),
+    ("Points forts", "description"),
+    ("What's in the box", "description"),
+    ("Contenu de l'emballage", "description"),
+    ("Technical details", "description"),
+    ("Fiche technique", "description"),
+    ("Product story", "description"),
 
     # ── category ─────────────────────────────────────────────────────────────
     ("Shoes > Running", "category"),
@@ -227,6 +325,17 @@ TRAINING_DATA: list[tuple[str, str]] = [
     ("Product type", "category"),
     ("Genre", "category"),
     ("Rayon", "category"),
+    ("Kitchen > Small Appliances > Blenders", "category"),
+    ("Vêtements > Femme > Manteaux", "category"),
+    ("Sports & Outdoors", "category"),
+    ("Rubrique", "category"),
+    ("Univers", "category"),
+    ("Product family", "category"),
+    ("Segment", "category"),
+    ("Classe", "category"),
+    ("Product group", "category"),
+    ("Gamme", "category"),
+    ("Sub-department", "category"),
 
     # ── irrelevant ────────────────────────────────────────────────────────────
     ("Email address", "irrelevant"),
@@ -255,6 +364,26 @@ TRAINING_DATA: list[tuple[str, str]] = [
     ("Taille", "irrelevant"),
     ("Couleur", "irrelevant"),
     ("Poids", "irrelevant"),
+    ("Warehouse location", "irrelevant"),
+    ("Supplier ID", "irrelevant"),
+    ("Tax rate", "irrelevant"),
+    ("Currency code", "irrelevant"),
+    ("Locale", "irrelevant"),
+    ("IP address", "irrelevant"),
+    ("Browser agent", "irrelevant"),
+    ("Cache key", "irrelevant"),
+    ("Slug", "irrelevant"),
+    ("Meta title", "irrelevant"),
+    ("Meta description", "irrelevant"),
+    ("Canonical URL", "irrelevant"),
+    ("Cookie consent", "irrelevant"),
+    ("Referrer", "irrelevant"),
+    ("Timestamp", "irrelevant"),
+    ("Checksum", "irrelevant"),
+    ("Language", "irrelevant"),
+    ("Devise", "irrelevant"),
+    ("Emplacement", "irrelevant"),
+    ("Entrepôt", "irrelevant"),
 ]
 
 
@@ -345,7 +474,7 @@ class FieldNet:
         print(f"  Train: {X_tr.shape[0]}  Val: {X_val.shape[0]}")
 
         # ── Network ───────────────────────────────────────────────────────────
-        print(f"\n{_t('Step 2','blue')} Training MLP (Adam, max 3000 epochs, early stopping)…\n")
+        print(f"\n{_t('Step 2','blue')} Training MLP (Adam, max 1000 epochs, early stopping)…\n")
         self._model = MLPClassifier(
             hidden_layer_sizes=(256, 128),
             activation="relu",
@@ -353,7 +482,7 @@ class FieldNet:
             alpha=1e-4,           # L2 regularisation
             batch_size="auto",
             learning_rate="adaptive",
-            max_iter=3000,
+            max_iter=1000,
             early_stopping=True,
             validation_fraction=0.15,
             n_iter_no_change=20,
@@ -527,7 +656,7 @@ class FieldNet:
         self._model   = data["model"]
         self._trained = True
         print(f"{_t('✔ Model loaded','green')} ← {path}")
-        return True
+        return True 
 
 
 # ── Singleton used by server ──────────────────────────────────────────────────
@@ -549,7 +678,7 @@ def get_net() -> FieldNet:
 # ── CLI — run `python neural_net.py` to train and demo ───────────────────────
 
 if __name__ == "__main__":
-    print(_t("\n  Multifit Neural Field Classifier\n", "bold"))
+    print(_t("\n  eProgram Neural Field Classifier\n", "bold"))
 
     net = FieldNet()
     net.train()

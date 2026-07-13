@@ -80,6 +80,13 @@ _NON_PRICE_CONTEXT = re.compile(
 )
 
 
+def _is_barcode(sku: str) -> bool:
+    """Return True if the SKU looks like an EAN/UPC/internal barcode.
+    Barcodes are all-digit strings of 8+ chars and never appear on product pages.
+    """
+    return bool(sku) and re.match(r'^\d{8,}$', sku.strip()) is not None
+
+
 # ── Currency conversion ───────────────────────────────────────────────────────
 #
 # HOW IT WORKS
@@ -255,6 +262,7 @@ def _extract_price_from_text(text: str) -> Optional[str]:
 
 def _extract_from_jsonld(soup: BeautifulSoup) -> Optional[str]:
     """Parse JSON-LD structured data — most reliable source for e-commerce prices."""
+    used_prices = []
     for script in soup.find_all('script', type='application/ld+json'):
         try:
             raw = script.string or ''
@@ -264,18 +272,20 @@ def _extract_from_jsonld(soup: BeautifulSoup) -> Optional[str]:
 
             # Offer can be nested or at top level
             offers = data.get('offers') or data.get('Offers') or {}
-            if isinstance(offers, list):
+            if isinstance(offers, list):    
                 offers = offers[0] if offers else {}
 
             price = (
                 offers.get('price') or offers.get('Price') or
                 data.get('price') or data.get('Price')
             )
-            if price is not None:
+            if (price is not None):
+                used_prices.append(price)
                 val = _parse_price_value(str(price))
-                if val is not None:
+                if (val is not None):
                     currency = offers.get('priceCurrency', '')
                     return f"{val} {currency}".strip()
+            
         except Exception:
             continue
     return None
@@ -434,6 +444,15 @@ def _name_matches(page_name: str, expected_title: str, threshold: float = 0.20) 
     expected_tokens = tokenise(expected_title)
     if not expected_tokens:
         return True
+
+    # Adaptive threshold: short titles need a higher fraction of tokens to match.
+    # "PARFUM EDT" (2 tokens) at 50% would accept any page mentioning just "parfum"
+    # or just "edt" — far too permissive.
+    n = len(expected_tokens)
+    if n <= 2:
+        threshold = max(threshold, 1.0)   # all tokens must match
+    elif n == 3:
+        threshold = max(threshold, 0.67)  # 2 of 3 tokens
 
     page_tokens = tokenise(page_name)
     overlap = expected_tokens & page_tokens
@@ -752,22 +771,29 @@ async def _find_price_for_product(product: Product, engine: str,
             page_text = data.get("page_text", "")
             page_name = data.get("page_name", "")
 
-            # Gate 1: must look like a product/shop page (has buy signals)
-            # Scan up to 15 000 chars of visible text — JS-heavy sites may push
-            # the add-to-cart area well past the first fold.
+            # Gate 1: buy-signal check — soft warning only.
+            # JS-heavy sites (Shopify, WooCommerce) render cart buttons dynamically;
+            # visible text often won't contain them even on a real product page.
             check_text = page_text[:15_000]
             if not _BUY_SIGNALS.search(check_text):
-                print(f"  {_t('skip','grey')} no buy signals — not a product page")
-                continue
+                print(f"  {_t('warn','yellow')} no buy signals — proceeding anyway")
+                # do NOT skip — name/SKU gates below are the real verification
 
-            # Gate 2: SKU must be visible on the page
-            if verify_sku and verify_sku.lower() not in page_text.lower():
-                print(f"  {_t('skip','grey')} SKU «{verify_sku}» not on page")
-                continue
+            # Gate 2: SKU must appear in visible page text.
+            # Normalise both sides (strip non-alphanumeric) so "REF-123" matches
+            # "REF 123" or "REF123" as displayed on the page.
+            # Skip this gate for barcodes (EAN/UPC) — they're internal codes that
+            # never appear on product pages.
+            if verify_sku and not _is_barcode(verify_sku):
+                sku_norm  = re.sub(r'[^a-z0-9]', '', verify_sku.lower())
+                page_norm = re.sub(r'[^a-z0-9]', '', page_text.lower())
+                if sku_norm not in page_norm:
+                    print(f"  {_t('skip','grey')} SKU «{verify_sku}» not on page")
+                    continue
 
             # Gate 3: name check (only when no SKU to confirm identity).
-            # Threshold 0.50: majority of significant title tokens must appear
-            # on the page — prevents same-brand pages from matching different products.
+            # 50% token overlap required — prevents same-brand pages from
+            # matching different products (e.g. "PARFUM EDT 65ml" vs "65ml EDT").
             if verify_title and not verify_sku:
                 if not _name_matches(page_name, verify_title, threshold=0.50):
                     print(f"  {_t('skip','grey')} name mismatch: page={_t(repr(page_name[:60]),'grey')}")
@@ -792,7 +818,10 @@ async def _find_price_for_product(product: Product, engine: str,
         return await _search_urls(query, engine, max_results=n)
 
     # ── Phase 1: SKU search ───────────────────────────────────────────────────
-    if has_sku:
+    # Skip entirely for barcode SKUs — EAN/UPC codes are internal and never
+    # appear on retailer product pages, so searching by them returns irrelevant
+    # results that pollute Phase 2.
+    if has_sku and not _is_barcode(product.sku):
         print(f"  {_t('[Phase 1]','blue')} SKU search: {_t(product.sku,'yellow')}")
 
         # Try quoted SKU first, then unquoted if no results
@@ -801,9 +830,11 @@ async def _find_price_for_product(product: Product, engine: str,
             results = await _search(product.sku)
 
         if results:
-            # For SKU search: name verification OFF (SKU is already specific enough),
-            # but we still verify the SKU appears on the actual page.
+            # Primary: require the SKU to appear on the page
             hit = await _try(results, verify_sku=product.sku)
+            if not hit:
+                # Reference code not on page — try name-only check on same URLs
+                hit = await _try(results, verify_title=product.title)
             if hit:
                 return hit
 
@@ -812,26 +843,43 @@ async def _find_price_for_product(product: Product, engine: str,
             data = await asyncio.to_thread(_scrape_page_for_price, target_url)
             if data.get("found_price"):
                 return {**data, "found_url": target_url, "found_source": domain}
+    elif has_sku:
+        print(f"  {_t('[Phase 1]','blue')} barcode SKU {_t(product.sku,'yellow')} — skipping to Phase 2")
 
-    # ── Phase 2: name search ──────────────────────────────────────────────────
+    # ── Phase 2: name + SKU combined search ──────────────────────────────────
     if has_name:
-        print(f"  {_t('[Phase 2]','blue')} name search: {_t(product.title,'cyan')}")
-
-        # Build query variants from most to least specific
-        queries: list[str] = []
-        base = product.title.strip()
+        base   = product.title.strip()
         vendor = (product.vendor or "").strip()
+        print(f"  {_t('[Phase 2]','blue')} name search: {_t(base,'cyan')}"
+              + (f" + SKU {_t(product.sku,'yellow')}" if has_sku else ""))
 
+        # Build queries most-specific first.
+        # For products with generic titles (e.g. "PARFUM EDT"), include SKU
+        # and product type so each product gets a unique search string.
+        queries: list[str] = []
+        type_hint = (product.product_type or "").strip()
+
+        # SKU-inclusive queries first — only for real reference codes, not barcodes
+        if has_sku and not _is_barcode(product.sku):
+            sku = product.sku.strip()
+            if vendor:
+                queries.append(f'{base} {sku} {vendor}')
+            queries.append(f'{base} {sku}')
+
+        # Vendor + type enrichment
         if vendor and vendor.lower() not in base.lower():
+            if type_hint and type_hint.lower() not in base.lower():
+                queries.append(f'"{base}" {type_hint} {vendor}')
             queries.append(f'"{base}" {vendor}')
+        elif type_hint and type_hint.lower() not in base.lower():
+            queries.append(f'"{base}" {type_hint}')
+
         queries.append(f'"{base}"')
-        # Unquoted fallback — catches variant name spellings
-        short = " ".join(base.split()[:6])  # first 6 words only
+        short = " ".join(base.split()[:6])
         if short != base:
             queries.append(short)
 
         if not domain:
-            # Append commercial signals when searching the open web
             queries = [q + " buy price" for q in queries]
 
         results: list = []
@@ -845,26 +893,13 @@ async def _find_price_for_product(product: Product, engine: str,
         seen: set = set()
         results = [r for r in results if not (r["url"] in seen or seen.add(r["url"]))]
 
-        hit = await _try(results,
-                         verify_title=product.title,
-                         verify_sku=product.sku if has_sku else "")
+        # Single pass with name verification — the adaptive threshold in
+        # _name_matches handles short titles (≤2 tokens → 100% match required).
+        # The removed lenient pass was causing wrong prices for generic names:
+        # accepting any priced page without verification is too risky.
+        hit = await _try(results, verify_title=product.title)
         if hit:
             return hit
-
-        # Last resort: extract price directly from search snippet (no page visit) :(
-        if not domain:
-            currency_re = re.compile(
-                r'(?:[\$€£¥₹₩]\s*\d[\d\s,]*\.?\d{0,2})'
-                r'|(?:\d[\d\s,]*\.?\d{0,2}\s*(?:€|EUR|USD|GBP|DZD|MAD|TND|DA|DH))',
-            )
-            for r in results:
-                m = currency_re.search(r.get("snippet", ""))
-                if m and _parse_price_value(m.group()) is not None:
-                    snippet_hit = {"found_price": m.group().strip(), "found_availability": "Unknown",
-                                   "found_url": r.get("url", ""), "found_source": r.get("title", ""),
-                                   "page_name": ""}
-                    print(f"  {_t('★ FOUND (snippet)','yellow')} {snippet_hit['found_price']}")
-                    return snippet_hit
 
     print(f"  {_t('✘ NOT FOUND','red')} — no price located for this product")
     return NOT_FOUND
